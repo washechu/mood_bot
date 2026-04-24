@@ -191,9 +191,11 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         f"Пиши мягко, поддерживающе, без осуждения и без излишнего пафоса.\n\n"
         f"Данные дневника за {days} дней:\n{diary_text}\n\n"
         f"Структура ответа (строго следуй ей):\n{structure}\n\n"
-        f"Важно: пиши на русском, тепло и по-человечески. "
-        f"Не больше 250 слов. "
-        f"Используй *жирный* (звёздочки) для названий блоков и _курсив_ (подчёркивания) для текста внутри блоков."
+        f"Важно: пиши на русском, тепло и по-человечески. Не больше 250 слов.\n"
+        f"Форматирование строго такое:\n"
+        f"- Название блока: _курсив_ (подчёркивания), например _Как прошла неделя_\n"
+        f"- Текст внутри блока: обычный, без markdown\n"
+        f"- Пустая строка между блоками"
     )
 
     try:
@@ -222,59 +224,44 @@ async def build_dynamics(user_id: int, days: int):
     start_str = day_list[0].strftime('%d.%m')
     end_str = day_list[-1].strftime('%d.%m')
     period = "неделю" if days == 7 else "месяц"
-    text = f"📈 *Динамика за {period}* ({start_str} — {end_str})\n\n"
-
-    # Text progress bars
-    for cat in CATEGORIES:
-        scores = []
-        for day in day_list:
-            day_str = day.strftime('%Y-%m-%d')
-            score = by_date.get(day_str, {}).get(cat, (None, None))[0]
-            scores.append(score)
-        filled = [s for s in scores if s is not None]
-        avg = f"  *{sum(filled)/len(filled):.1f}*" if filled else ""
-        bar = "".join(score_color(s) for s in scores)
-        text += f"{EMOJI[cat]} *{cat}*\n{bar}{avg}\n\n"
+    header = f"📈 *Динамика за {period}* ({start_str} — {end_str})"
 
     keyboard = []
 
     if days == 7:
-        # Individual day buttons
         for cat in CATEGORIES:
             cat_idx = CATEGORIES.index(cat)
+            scores = []
             day_row = []
             for day in day_list:
                 day_str = day.strftime('%Y-%m-%d')
                 score = by_date.get(day_str, {}).get(cat, (None, None))[0]
+                scores.append(score)
                 day_row.append(InlineKeyboardButton(
                     score_color(score),
                     callback_data=f"dyn_{day.strftime('%Y-%m-%d')}_{cat_idx}"
                 ))
-            keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}", callback_data="noop")])
+            filled = [s for s in scores if s is not None]
+            avg = f"  {sum(filled)/len(filled):.1f}" if filled else ""
+            keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}{avg}", callback_data="noop")])
             keyboard.append(day_row)
     else:
-        # Weekly aggregated buttons for month view
-        weeks = []
-        for i in range(0, len(day_list), 7):
-            weeks.append(day_list[i:i + 7])
-
+        weeks = [day_list[i:i+7] for i in range(0, len(day_list), 7)]
         for cat in CATEGORIES:
             cat_idx = CATEGORIES.index(cat)
             week_row = []
             for week in weeks:
-                week_scores = []
-                for day in week:
-                    day_str = day.strftime('%Y-%m-%d')
-                    score = by_date.get(day_str, {}).get(cat, (None, None))[0]
-                    if score is not None:
-                        week_scores.append(score)
-                avg = sum(week_scores) / len(week_scores) if week_scores else None
+                week_scores = [
+                    by_date.get(d.strftime('%Y-%m-%d'), {}).get(cat, (None, None))[0]
+                    for d in week
+                ]
+                filled = [s for s in week_scores if s is not None]
+                avg = sum(filled) / len(filled) if filled else None
                 color = score_color(avg)
-                label = f"{color} {week[0].strftime('%d.%m')}–{week[-1].strftime('%d.%m')}"
-                week_start = week[0].strftime('%Y-%m-%d')
+                label = f"{color} {week[0].strftime('%d.%m')}"
                 week_row.append(InlineKeyboardButton(
                     label,
-                    callback_data=f"week_{week_start}_{cat_idx}"
+                    callback_data=f"week_{week[0].strftime('%Y-%m-%d')}_{cat_idx}"
                 ))
             keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}", callback_data="noop")])
             keyboard.append(week_row)
@@ -286,10 +273,7 @@ async def build_dynamics(user_id: int, days: int):
     ])
 
     ai_text = await get_ai_summary(user_id, days, 'week' if days == 7 else 'month')
-    if ai_text:
-        text += ai_text
-
-    return text, InlineKeyboardMarkup(keyboard)
+    return header, InlineKeyboardMarkup(keyboard), ai_text
 
 
 # ──────────────────────────────────────────────
@@ -436,8 +420,12 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     msg = await update.message.reply_text("Собираю динамику… 📈")
-    text, keyboard = await build_dynamics(user_id, 7)
-    await msg.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    header, keyboard, ai_text = await build_dynamics(user_id, 7)
+    await msg.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
+    if ai_text:
+        summary_msg = await update.message.reply_text(ai_text, parse_mode='Markdown')
+        context.user_data['summary_msg_id'] = summary_msg.message_id
+        context.user_data['summary_chat_id'] = update.effective_chat.id
 
 
 async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -445,8 +433,26 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     days = int(query.data.split('_')[2])
     user_id = query.from_user.id
-    text, keyboard = await build_dynamics(user_id, days)
-    await query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
+    header, keyboard, ai_text = await build_dynamics(user_id, days)
+    await query.message.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
+
+    # Edit existing summary message or send new one
+    summary_msg_id = context.user_data.get('summary_msg_id')
+    chat_id = query.message.chat_id
+    if summary_msg_id and ai_text:
+        try:
+            await query.get_bot().edit_message_text(
+                chat_id=chat_id,
+                message_id=summary_msg_id,
+                text=ai_text,
+                parse_mode='Markdown'
+            )
+        except Exception:
+            msg = await query.message.reply_text(ai_text, parse_mode='Markdown')
+            context.user_data['summary_msg_id'] = msg.message_id
+    elif ai_text:
+        msg = await query.message.reply_text(ai_text, parse_mode='Markdown')
+        context.user_data['summary_msg_id'] = msg.message_id
 
 
 async def handle_week_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
