@@ -97,7 +97,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([
         ["📝 Заполнить"],
         ["📈 Динамика"],
-        ["⏰ Изменить время"],
+        ["🔔 Напоминание"],
     ], resize_keyboard=True)
 
 
@@ -192,7 +192,8 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         f"Данные дневника за {days} дней:\n{diary_text}\n\n"
         f"Структура ответа (строго следуй ей):\n{structure}\n\n"
         f"Важно: пиши на русском, тепло и по-человечески. "
-        f"Не больше 250 слов. Используй *жирный* markdown для заголовков блоков."
+        f"Не больше 250 слов. "
+        f"Используй *жирный* (звёздочки) для заголовков блоков и _курсив_ (подчёркивания) для пояснений и советов внутри блоков."
     )
 
     try:
@@ -220,31 +221,35 @@ async def build_dynamics(user_id: int, days: int):
 
     start_str = day_list[0].strftime('%d.%m')
     end_str = day_list[-1].strftime('%d.%m')
-    label = "неделю" if days == 7 else "месяц"
-    text = f"📈 *Динамика* ({start_str} — {end_str})\n\n⬜ 1–5  🟨 6–7  🟩 8–10  ⬛ нет данных\n_← {days} дн. назад · сегодня →_"
+    period = "неделю" if days == 7 else "месяц"
+    text = f"📈 *Динамика за {period}* ({start_str} — {end_str})"
 
     keyboard = []
     for cat in CATEGORIES:
         cat_idx = CATEGORIES.index(cat)
         scores = []
-        day_row = []
+        all_day_buttons = []
         for day in day_list:
             day_str = day.strftime('%Y-%m-%d')
             score = by_date.get(day_str, {}).get(cat, (None, None))[0]
             scores.append(score)
-            day_row.append(InlineKeyboardButton(
+            all_day_buttons.append(InlineKeyboardButton(
                 score_color(score),
                 callback_data=f"dyn_{day.strftime('%Y-%m-%d')}_{cat_idx}"
             ))
+
         filled = [s for s in scores if s is not None]
         avg = f"  {sum(filled)/len(filled):.1f}" if filled else ""
         keyboard.append([InlineKeyboardButton(
             f"{EMOJI[cat]} {cat}{avg}",
             callback_data="noop"
         )])
-        keyboard.append(day_row)
 
-    # Toggle button
+        # Split into weekly rows for month view
+        chunk = 7
+        for i in range(0, len(all_day_buttons), chunk):
+            keyboard.append(all_day_buttons[i:i + chunk])
+
     if days == 7:
         keyboard.append([InlineKeyboardButton("📅 Показать месяц", callback_data="dyn_toggle_30")])
     else:
@@ -297,7 +302,7 @@ async def save_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SET_TIME
     db.set_reminder_time(update.effective_user.id, text)
     await update.message.reply_text(
-        f"Готово! Буду напоминать каждый день в *{text}* 🌙\n\nВот твоё меню:",
+        f"Готово! Буду напоминать каждый день в *{text}* 🌙",
         reply_markup=main_menu_kb(),
         parse_mode='Markdown'
     )
@@ -316,7 +321,12 @@ async def begin_fill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['cat_idx'] = 0
     context.user_data['fill_date'] = moscow_now().strftime('%Y-%m-%d')
     context.user_data['onboarding'] = False
-    await reply(update, "Хорошо, давай пройдёмся по дню 🌿\nОтвечай честно — здесь нет правильных ответов.")
+
+    intro = "Хорошо, давай пройдёмся по дню 🌿\nОтвечай честно — здесь нет правильных ответов."
+    if db.has_entry_today(user.id):
+        intro = "Ты уже заполнял сегодня — но можешь обновить записи 🌿"
+
+    await reply(update, intro)
     await ask_category(update, context)
     return SCORE
 
@@ -446,6 +456,8 @@ async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "📈 Динамика":
         await cmd_dynamics(update, context)
+    elif update.message.text == "🔔 Напоминание":
+        await cmd_time(update, context)
 
 
 # ──────────────────────────────────────────────
@@ -486,7 +498,7 @@ def main():
     time_conv = ConversationHandler(
         entry_points=[
             CommandHandler('time', cmd_time),
-            MessageHandler(filters.Regex("^⏰ Изменить время$"), cmd_time),
+            MessageHandler(filters.Regex("^🔔 Напоминание$"), cmd_time),
         ],
         states={
             SET_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_time)]
