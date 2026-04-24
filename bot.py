@@ -193,7 +193,7 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         f"Структура ответа (строго следуй ей):\n{structure}\n\n"
         f"Важно: пиши на русском, тепло и по-человечески. "
         f"Не больше 250 слов. "
-        f"Используй *жирный* (звёздочки) для заголовков блоков и _курсив_ (подчёркивания) для пояснений и советов внутри блоков."
+        f"Используй *жирный* (звёздочки) для названий блоков и _курсив_ (подчёркивания) для текста внутри блоков."
     )
 
     try:
@@ -222,42 +222,72 @@ async def build_dynamics(user_id: int, days: int):
     start_str = day_list[0].strftime('%d.%m')
     end_str = day_list[-1].strftime('%d.%m')
     period = "неделю" if days == 7 else "месяц"
-    text = f"📈 *Динамика за {period}* ({start_str} — {end_str})"
+    text = f"📈 *Динамика за {period}* ({start_str} — {end_str})\n\n"
 
-    keyboard = []
+    # Text progress bars
     for cat in CATEGORIES:
-        cat_idx = CATEGORIES.index(cat)
         scores = []
-        all_day_buttons = []
         for day in day_list:
             day_str = day.strftime('%Y-%m-%d')
             score = by_date.get(day_str, {}).get(cat, (None, None))[0]
             scores.append(score)
-            all_day_buttons.append(InlineKeyboardButton(
-                score_color(score),
-                callback_data=f"dyn_{day.strftime('%Y-%m-%d')}_{cat_idx}"
-            ))
-
         filled = [s for s in scores if s is not None]
-        avg = f"  {sum(filled)/len(filled):.1f}" if filled else ""
-        keyboard.append([InlineKeyboardButton(
-            f"{EMOJI[cat]} {cat}{avg}",
-            callback_data="noop"
-        )])
+        avg = f"  *{sum(filled)/len(filled):.1f}*" if filled else ""
+        bar = "".join(score_color(s) for s in scores)
+        text += f"{EMOJI[cat]} *{cat}*\n{bar}{avg}\n\n"
 
-        # Split into weekly rows for month view
-        chunk = 7
-        for i in range(0, len(all_day_buttons), chunk):
-            keyboard.append(all_day_buttons[i:i + chunk])
+    keyboard = []
 
     if days == 7:
-        keyboard.append([InlineKeyboardButton("📅 Показать месяц", callback_data="dyn_toggle_30")])
+        # Individual day buttons
+        for cat in CATEGORIES:
+            cat_idx = CATEGORIES.index(cat)
+            day_row = []
+            for day in day_list:
+                day_str = day.strftime('%Y-%m-%d')
+                score = by_date.get(day_str, {}).get(cat, (None, None))[0]
+                day_row.append(InlineKeyboardButton(
+                    score_color(score),
+                    callback_data=f"dyn_{day.strftime('%Y-%m-%d')}_{cat_idx}"
+                ))
+            keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}", callback_data="noop")])
+            keyboard.append(day_row)
     else:
-        keyboard.append([InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7")])
+        # Weekly aggregated buttons for month view
+        weeks = []
+        for i in range(0, len(day_list), 7):
+            weeks.append(day_list[i:i + 7])
+
+        for cat in CATEGORIES:
+            cat_idx = CATEGORIES.index(cat)
+            week_row = []
+            for week in weeks:
+                week_scores = []
+                for day in week:
+                    day_str = day.strftime('%Y-%m-%d')
+                    score = by_date.get(day_str, {}).get(cat, (None, None))[0]
+                    if score is not None:
+                        week_scores.append(score)
+                avg = sum(week_scores) / len(week_scores) if week_scores else None
+                color = score_color(avg)
+                label = f"{color} {week[0].strftime('%d.%m')}–{week[-1].strftime('%d.%m')}"
+                week_start = week[0].strftime('%Y-%m-%d')
+                week_row.append(InlineKeyboardButton(
+                    label,
+                    callback_data=f"week_{week_start}_{cat_idx}"
+                ))
+            keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}", callback_data="noop")])
+            keyboard.append(week_row)
+
+    keyboard.append([
+        InlineKeyboardButton("📅 Показать месяц", callback_data="dyn_toggle_30")
+        if days == 7 else
+        InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7")
+    ])
 
     ai_text = await get_ai_summary(user_id, days, 'week' if days == 7 else 'month')
     if ai_text:
-        text += f"\n\n{ai_text}"
+        text += ai_text
 
     return text, InlineKeyboardMarkup(keyboard)
 
@@ -419,6 +449,37 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     await query.message.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
 
 
+async def handle_week_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.split('_')
+    week_start_str = parts[1]
+    cat_idx = int(parts[2])
+    cat = CATEGORIES[cat_idx]
+    emoji = EMOJI[cat]
+
+    week_start = datetime.strptime(week_start_str, '%Y-%m-%d').date()
+    week_days = [week_start + timedelta(days=i) for i in range(7)]
+
+    entries = db.get_entries(query.from_user.id, 60)
+    by_date = entries_by_date(entries)
+
+    lines = [f"{emoji} *{cat} · {week_start.strftime('%d.%m')}–{(week_start + timedelta(days=6)).strftime('%d.%m')}*\n"]
+    for day in week_days:
+        day_str = day.strftime('%Y-%m-%d')
+        day_data = by_date.get(day_str, {}).get(cat)
+        day_label = day.strftime('%d.%m')
+        if day_data:
+            score, comment = day_data
+            comment_text = f" — _{comment}_" if comment else ""
+            lines.append(f"{score_color(score)} *{day_label}* {score}/10{comment_text}")
+        else:
+            lines.append(f"⬛ {day_label} — нет данных")
+
+    await query.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+
 async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -527,6 +588,7 @@ def main():
     app.add_handler(onboarding_and_fill)
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern='^noop$'))
     app.add_handler(CallbackQueryHandler(handle_dynamics_toggle, pattern=r'^dyn_toggle_'))
+    app.add_handler(CallbackQueryHandler(handle_week_tap, pattern=r'^week_'))
     app.add_handler(CallbackQueryHandler(handle_dynamics_tap, pattern=r'^dyn_'))
     app.add_handler(CommandHandler('dynamics', cmd_dynamics))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_buttons))
