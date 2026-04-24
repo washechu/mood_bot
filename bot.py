@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import datetime
 
+import groq
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -206,6 +207,71 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Analytics commands
 # ──────────────────────────────────────────────
 
+async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    first_name = update.effective_user.first_name or 'пользователь'
+
+    # Determine period from args: /summary 7 or /summary 30, default 7
+    args = context.args
+    try:
+        days = int(args[0]) if args else 7
+        days = max(3, min(days, 90))
+    except (ValueError, IndexError):
+        days = 7
+
+    entries = db.get_entries(user_id, days)
+    if not entries:
+        await update.message.reply_text("Пока нет данных для анализа. Начни с /fill 📝")
+        return
+
+    # Format entries for the prompt
+    by_date = {}
+    for date, category, score, comment in entries:
+        by_date.setdefault(date, []).append((category, score, comment))
+
+    lines = []
+    for date in sorted(by_date.keys()):
+        lines.append(f"\n📅 {date}")
+        for category, score, comment in by_date[date]:
+            comment_str = f" — {comment}" if comment else ""
+            lines.append(f"  {category}: {score}/10{comment_str}")
+
+    diary_text = "\n".join(lines)
+
+    prompt = f"""Ты заботливый и внимательный помощник, который анализирует дневник самочувствия.
+
+Вот записи пользователя {first_name} за последние {days} дней:
+{diary_text}
+
+Напиши персональный анализ на русском языке. Структура:
+
+1. **Общая картина** — кратко как прошёл период в целом, средние оценки по категориям
+2. **Что бросается в глаза** — интересные паттерны, корреляции, динамика (например: "в дни с низкой физактивностью настроение тоже падало")
+3. **Тревожные сигналы** — если что-то стабильно низкое или резко упало (если таких нет — не выдумывай)
+4. **Маленький совет** — одна конкретная, практичная рекомендация на следующую неделю
+
+Пиши тепло и по-человечески, без канцелярита. Не больше 300 слов."""
+
+    msg = await update.message.reply_text("🤔 Анализирую твой дневник…")
+
+    try:
+        client = groq.Groq(api_key=os.environ['GROQ_API_KEY'])
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        analysis = response.choices[0].message.content
+        await msg.delete()
+        await update.message.reply_text(
+            f"🧠 *Анализ за {days} дней*\n\n{analysis}",
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"AI summary error: {e}")
+        await msg.edit_text("Что-то пошло не так при анализе. Попробуй позже 🙏")
+
+
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = analytics.get_weekly_summary(update.effective_user.id)
     if not text:
@@ -294,6 +360,7 @@ def main():
     app.add_handler(CommandHandler('stats',   cmd_stats))
     app.add_handler(CommandHandler('heatmap', cmd_heatmap))
     app.add_handler(CommandHandler('trends',  cmd_trends))
+    app.add_handler(CommandHandler('summary', cmd_summary))
 
     # Scheduler runs every minute, checks who needs a reminder
     scheduler = AsyncIOScheduler(timezone='UTC')
