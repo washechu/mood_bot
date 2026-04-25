@@ -3,7 +3,6 @@ import logging
 import random
 from datetime import datetime, timedelta, timezone
 
-import groq
 from openai import AsyncOpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
