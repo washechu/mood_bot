@@ -4,7 +4,7 @@ from datetime import datetime
 
 DB_PATH = os.environ.get('DB_PATH', 'mood_tracker.db')
 
-CATEGORIES = ['Здоровье', 'Настроение', 'Физактивность', 'Еда', 'Сон']
+CATEGORIES = ['Здоровье', 'Настроение', 'Активность', 'Еда', 'Сон', 'Саморазвитие']
 
 
 def init_db():
