@@ -150,17 +150,36 @@ async def get_daily_summary(entries_today: list) -> str:
     if not entries_today:
         return ""
     lines = []
+    scores = []
     for category, score, comment in entries_today:
         comment_str = f" — {comment}" if comment else ""
         lines.append(f"{EMOJI.get(category, '')} {category}: {score}/10{comment_str}")
+        scores.append(score)
     today_text = "\n".join(lines)
+
+    avg = sum(scores) / len(scores) if scores else 5
+    if avg >= 7.5:
+        tone = (
+            "Тон: тёплый и немного приподнятый — день был хорошим, отрази это. "
+            "Можно отметить что-то конкретно позитивное. Заверши с лёгкостью."
+        )
+    elif avg >= 5:
+        tone = (
+            "Тон: спокойный и поддерживающий — день был средним, не преувеличивай ни хорошее ни плохое. "
+            "Просто будь рядом. Заверши мягко."
+        )
+    else:
+        tone = (
+            "Тон: очень бережный и тихий — день был тяжёлым. Не давай советов, не ищи позитив. "
+            "Просто признай что было непросто и пожелай отдыха."
+        )
+
     prompt = (
         f"Вот записи за сегодня:\n{today_text}\n\n"
         f"Напиши короткий отклик на день — 2-3 предложения. "
-        f"Тон: тёплый и спокойный, как у внимательного терапевта. "
-        f"Не восклицай, не заискивай, не сюсюкай. "
+        f"{tone} "
+        f"Не восклицай, не заискивай. "
         f"Замечай что-то конкретное из записей — покажи что услышал человека. "
-        f"Завершай мягким, без пафоса пожеланием на вечер. "
         f"Только русский язык, без markdown."
     )
     try:
@@ -409,8 +428,13 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     if context.user_data['cat_idx'] >= len(CATEGORIES):
         image_url = random.choice(IMAGES)
 
-        # Show typing indicator while AI generates
+        # Show intermediate message while AI generates
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        thinking_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text="_Обдумываю это…_",
+            parse_mode='Markdown'
+        )
 
         # Get today's entries for daily summary
         raw_entries = db.get_entries(user_id, 1)
@@ -433,6 +457,7 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             )
             return SET_TIME
 
+        await thinking_msg.delete()
         try:
             await context.bot.send_photo(chat_id=chat_id, photo=image_url, caption=daily_text)
         except Exception as e:
