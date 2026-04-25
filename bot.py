@@ -402,27 +402,31 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     if context.user_data['cat_idx'] >= len(CATEGORIES):
         quote = random.choice(QUOTES)
         image_url = random.choice(IMAGES)
+        chat_id = update.effective_chat.id
 
         if context.user_data.get('onboarding'):
-            await reply(
-                update,
-                f"✅ *Первая запись сделана!*\n\n_{quote}_\n\n"
-                f"В какое время каждый день мне присылать напоминание?\nНапиши в формате ЧЧ:ММ, например `21:00`",
+            # Send image first
+            await update.get_bot().send_photo(
+                chat_id=chat_id,
+                photo=image_url,
+                caption=f"✅ *Первая запись сделана!*\n\n_{quote}_",
                 parse_mode='Markdown'
             )
-            # Send image separately
-            chat_id = update.effective_chat.id
-            await update.get_bot().send_photo(chat_id=chat_id, photo=image_url)
+            # Then ask for time
+            await update.get_bot().send_message(
+                chat_id=chat_id,
+                text="В какое время каждый день мне присылать напоминание?\nНапиши в формате ЧЧ:ММ, например `21:00`",
+                parse_mode='Markdown'
+            )
             return SET_TIME
 
-        chat_id = update.effective_chat.id
+        # Regular fill - send photo with caption
         await update.get_bot().send_photo(
             chat_id=chat_id,
             photo=image_url,
             caption=f"_{quote}_",
             parse_mode='Markdown'
         )
-        # Show menu
         if update.callback_query:
             await update.callback_query.message.reply_text("✅", reply_markup=main_menu_kb())
         else:
