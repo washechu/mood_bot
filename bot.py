@@ -138,7 +138,7 @@ def get_streak(user_id: int) -> int:
 def ai_client():
     return AsyncOpenAI(
         api_key=os.environ['ROUTER_AI_KEY'],
-        base_url="https://api.routerai.ru/v1"
+        base_url="https://routerai.ru/api/v1"
     )
 
 
@@ -165,7 +165,6 @@ async def get_daily_summary(entries_today: list) -> str:
     try:
         response = await ai_client().chat.completions.create(
             model="deepseek/deepseek-v4-pro",
-            max_tokens=200,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
