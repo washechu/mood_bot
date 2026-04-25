@@ -166,7 +166,9 @@ def get_streak(user_id: int) -> int:
 # AI summary
 # ──────────────────────────────────────────────
 
-async def get_daily_summary(entries_today: list) -> str:
+async def handle_text_in_score(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Нажми на цифру выше 👆")
+    return SCORE
     if not entries_today:
         return ""
 
@@ -670,7 +672,7 @@ def main():
         states={
             SCORE:    [
                 CallbackQueryHandler(handle_score, pattern=r'^s\d+$'),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text("Нажми на цифру выше 👆")),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_in_score),
             ],
             COMMENT:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_comment)],
             SET_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_time)],
