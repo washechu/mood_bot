@@ -409,6 +409,9 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     if context.user_data['cat_idx'] >= len(CATEGORIES):
         image_url = random.choice(IMAGES)
 
+        # Show typing indicator while AI generates
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+
         # Get today's entries for daily summary
         raw_entries = db.get_entries(user_id, 1)
         today_entries = [(cat, score, comm) for _, cat, score, comm in raw_entries]
@@ -433,7 +436,7 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         try:
             await context.bot.send_photo(chat_id=chat_id, photo=image_url, caption=daily_text)
         except Exception as e:
-            logger.warning(f"Photo send failed: {e}")
+            logger.error(f"Photo send failed with URL {image_url}: {type(e).__name__}: {e}")
             await context.bot.send_message(chat_id=chat_id, text=daily_text)
         await context.bot.send_message(chat_id=chat_id, text="✅", reply_markup=main_menu_kb())
         return ConversationHandler.END
