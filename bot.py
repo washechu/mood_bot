@@ -26,14 +26,23 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.environ['BOT_TOKEN']
 
-CATEGORIES = ['Здоровье', 'Настроение', 'Активность', 'Еда', 'Сон']
+CATEGORIES = ['Здоровье', 'Настроение', 'Активность', 'Еда', 'Сон', 'Саморазвитие']
 EMOJI = {
-    'Здоровье':   '💊',
-    'Настроение': '😊',
-    'Активность': '🏃',
-    'Еда':        '🍎',
-    'Сон':        '😴',
+    'Здоровье':      '💊',
+    'Настроение':    '😊',
+    'Активность':    '🏃',
+    'Еда':           '🍎',
+    'Сон':           '😴',
+    'Саморазвитие':  '📚',
 }
+
+IMAGES = [
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_english.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_pancakes.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_sleeping.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_training.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_walking.png",
+]
 
 QUOTES = [
     "Каждый день — это маленький шаг к лучшей версии себя 🌱",
@@ -57,15 +66,24 @@ REMINDER_MESSAGES = [
 ]
 
 COMMENT_PROMPTS = {
-    'Здоровье':   "Что с самочувствием? Есть что-то, на что стоит обратить внимание? 🩺",
-    'Настроение': "Что повлияло на настроение сегодня? Что стоит за этой оценкой? 💭",
-    'Активность': "Как двигалось тело сегодня? Что давало энергию — или забирало её? ⚡",
-    'Еда':        "Как питался сегодня? Было что-то особенное — или наоборот? 🍽️",
-    'Сон':        "Как спалось? Что могло повлиять на качество сна? 🌙",
+    'Здоровье':     "Что с самочувствием? Есть что-то, на что стоит обратить внимание? 🩺",
+    'Настроение':   "Что повлияло на настроение сегодня? Что стоит за этой оценкой? 💭",
+    'Активность':   "Как двигалось тело сегодня? Что давало энергию — или забирало её? ⚡",
+    'Еда':          "Как питался сегодня? Было что-то особенное — или наоборот? 🍽️",
+    'Сон':          "Как спалось? Что могло повлиять на качество сна? 🌙",
+    'Саморазвитие': "Что нового сегодня? Книга, урок, идея, открытие — даже маленькое считается 📖",
 }
 
 SET_TIME, SCORE, COMMENT = range(3)
 MOSCOW_TZ = timezone(timedelta(hours=3))
+
+SYSTEM_PROMPT = """Ты заботливый помощник по практике самонаблюдения.
+Помогаешь людям лучше понимать себя через ежедневный дневник самочувствия.
+Человек каждый день оценивает 6 сфер жизни по шкале 1-10 и оставляет комментарии:
+💊 Здоровье, 😊 Настроение, 🏃 Активность, 🍎 Еда, 😴 Сон, 📚 Саморазвитие.
+Цель практики — замечать паттерны и лучше понимать что влияет на состояние.
+Твой тон: тёплый, честный, поддерживающий — без пафоса, осуждения и излишнего оптимизма.
+Пиши ТОЛЬКО на русском языке, включая все заголовки."""
 
 
 def moscow_now():
@@ -128,17 +146,15 @@ def entries_by_date(entries):
 
 
 def get_streak(user_id: int) -> int:
-    """Count consecutive days with entries ending today or yesterday."""
     entries = db.get_entries(user_id, 90)
     if not entries:
         return 0
     days_with_data = set(str(e[0])[:10] for e in entries)
     today = moscow_now().date()
-    streak = 0
     check = today
-    # Allow today or yesterday as starting point
     if today.strftime('%Y-%m-%d') not in days_with_data:
         check = today - timedelta(days=1)
+    streak = 0
     while check.strftime('%Y-%m-%d') in days_with_data:
         streak += 1
         check -= timedelta(days=1)
@@ -158,6 +174,9 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
     for date, category, score, comment in entries:
         by_date.setdefault(str(date)[:10], []).append((category, score, comment))
 
+    if len(by_date) < 2:
+        return "_Данных пока маловато — возвращайся через несколько дней, тогда смогу увидеть паттерны 🌱_"
+
     lines = []
     for date in sorted(by_date.keys()):
         lines.append(f"\n📅 {date}")
@@ -168,34 +187,32 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
 
     if mode == 'week':
         structure = (
-            "**Как прошла неделя** — 2-3 предложения общего впечатления\n"
-            "**Что радует** — что шло хорошо, на что стоит опираться\n"
-            "**На что обратить внимание** — что просит заботы, без осуждения\n"
-            "**Связи** — есть ли заметные паттерны между категориями\n"
-            "**Совет на следующую неделю** — один конкретный и добрый"
+            "_Как прошла неделя_\n2-3 предложения общего впечатления\n\n"
+            "_Что радует_\nЧто шло хорошо, на что стоит опираться\n\n"
+            "_На что обратить внимание_\nЧто просит заботы, без осуждения\n\n"
+            "_Связи_\nЕсть ли заметные паттерны между категориями\n\n"
+            "_Совет на следующую неделю_\nОдин конкретный и добрый"
         )
         header = "🧠 *Взгляд на неделю*"
     else:
         structure = (
-            "**Месяц в целом** — общая картина и динамика\n"
-            "**Сильные стороны** — что стабильно хорошо\n"
-            "**Зоны роста** — где есть потенциал для улучшений\n"
-            "**Главный паттерн** — самая интересная связь в данных\n"
-            "**Намерение на следующий месяц** — одна мягкая рекомендация"
+            "_Месяц в целом_\nОбщая картина и динамика\n\n"
+            "_Сильные стороны_\nЧто стабильно хорошо\n\n"
+            "_Зоны роста_\nГде есть потенциал для улучшений\n\n"
+            "_Главный паттерн_\nСамая интересная связь в данных\n\n"
+            "_Намерение на следующий месяц_\nОдна мягкая рекомендация"
         )
         header = "🧠 *Взгляд на месяц*"
 
     prompt = (
-        f"Ты тёплый и внимательный помощник по самонаблюдению. "
-        f"Твоя задача — помочь человеку лучше понять себя через данные дневника. "
-        f"Пиши мягко, поддерживающе, без осуждения и без излишнего пафоса.\n\n"
-        f"Данные дневника за {days} дней:\n{diary_text}\n\n"
-        f"Структура ответа (строго следуй ей):\n{structure}\n\n"
-        f"Важно: пиши ТОЛЬКО на русском языке, включая все заголовки блоков. Не использовать английские слова ни в каком месте. Не больше 250 слов.\n"
-        f"Форматирование строго такое:\n"
-        f"- Название блока: _курсив_ (подчёркивания), например _Как прошла неделя_\n"
-        f"- Текст внутри блока: обычный, без markdown\n"
-        f"- Пустая строка между блоками"
+        f"Данные дневника за {days} дней:{diary_text}\n\n"
+        f"Напиши анализ строго по этой структуре:\n{structure}\n\n"
+        f"Требования:\n"
+        f"- Не больше 250 слов\n"
+        f"- Названия блоков как в структуре (курсивом через _)\n"
+        f"- Текст внутри блоков — обычный, без markdown\n"
+        f"- Пустая строка между блоками\n"
+        f"- Если данных мало — честно скажи об этом в начале"
     )
 
     try:
@@ -206,7 +223,10 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         response = await client.chat.completions.create(
             model="deepseek/deepseek-v4-pro",
             max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ]
         )
         return f"{header}\n\n{response.choices[0].message.content}"
     except Exception as e:
@@ -215,7 +235,7 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
 
 
 # ──────────────────────────────────────────────
-# Dynamics builder (shared for week/month)
+# Dynamics
 # ──────────────────────────────────────────────
 
 async def build_dynamics(user_id: int, days: int):
@@ -289,15 +309,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Привет, {user.first_name} 👋\n\n"
         "Я помогу тебе лучше понимать себя.\n\n"
-        "Каждый день мы будем отмечать пять сфер жизни — коротко и честно:\n\n"
+        "Каждый день мы будем отмечать шесть сфер жизни — коротко и честно:\n\n"
         "💊 Здоровье — как чувствует себя тело\n"
         "😊 Настроение — что происходит внутри\n"
         "🏃 Активность — движение и спорт\n"
         "🍎 Еда — как ты питаешься\n"
-        "😴 Сон — качество отдыха\n\n"
+        "😴 Сон — качество отдыха\n"
+        "📚 Саморазвитие — книга, урок, новая идея\n\n"
         "Эта практика помогает замечать паттерны и понимать, что влияет на твоё состояние. "
-        "Лучше всего заполнять вечером, перед сном — когда день уже прожит 🌙\n\n"
-        "Давай прямо сейчас заполним первую запись — это займёт пару минут.",
+        "Лучше всего заполнять вечером, перед сном 🌙\n\n"
+        "Давай прямо сейчас заполним первую запись!",
         parse_mode='Markdown'
     )
     context.user_data['cat_idx'] = 0
@@ -379,24 +400,33 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     context.user_data['cat_idx'] += 1
 
     if context.user_data['cat_idx'] >= len(CATEGORIES):
-        # Onboarding: ask for reminder time after first fill
+        quote = random.choice(QUOTES)
+        image_url = random.choice(IMAGES)
+
         if context.user_data.get('onboarding'):
-            quote = random.choice(QUOTES)
             await reply(
                 update,
                 f"✅ *Первая запись сделана!*\n\n_{quote}_\n\n"
                 f"В какое время каждый день мне присылать напоминание?\nНапиши в формате ЧЧ:ММ, например `21:00`",
                 parse_mode='Markdown'
             )
+            # Send image separately
+            chat_id = update.effective_chat.id
+            await update.get_bot().send_photo(chat_id=chat_id, photo=image_url)
             return SET_TIME
 
-        quote = random.choice(QUOTES)
-        await reply(
-            update,
-            f"✅ *Записано. Спасибо, что нашёл время для себя.*\n\n_{quote}_",
-            parse_mode='Markdown',
-            reply_markup=main_menu_kb()
+        chat_id = update.effective_chat.id
+        await update.get_bot().send_photo(
+            chat_id=chat_id,
+            photo=image_url,
+            caption=f"_{quote}_",
+            parse_mode='Markdown'
         )
+        # Show menu
+        if update.callback_query:
+            await update.callback_query.message.reply_text("✅", reply_markup=main_menu_kb())
+        else:
+            await update.message.reply_text("✅", reply_markup=main_menu_kb())
         return ConversationHandler.END
 
     await ask_category(update, context)
@@ -417,7 +447,7 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ──────────────────────────────────────────────
-# Dynamics
+# Dynamics commands
 # ──────────────────────────────────────────────
 
 async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -428,7 +458,6 @@ async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ai_text:
         summary_msg = await update.message.reply_text(ai_text, parse_mode='Markdown')
         context.user_data['summary_msg_id'] = summary_msg.message_id
-        context.user_data['summary_chat_id'] = update.effective_chat.id
 
 
 async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -439,7 +468,6 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     header, keyboard, ai_text = await build_dynamics(user_id, days)
     await query.message.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
 
-    # Edit existing summary message or send new one
     summary_msg_id = context.user_data.get('summary_msg_id')
     chat_id = query.message.chat_id
     if summary_msg_id and ai_text:
@@ -458,52 +486,18 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data['summary_msg_id'] = msg.message_id
 
 
-async def handle_week_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    parts = query.data.split('_')
-    week_start_str = parts[1]
-    cat_idx = int(parts[2])
-    cat = CATEGORIES[cat_idx]
-    emoji = EMOJI[cat]
-
-    week_start = datetime.strptime(week_start_str, '%Y-%m-%d').date()
-    week_days = [week_start + timedelta(days=i) for i in range(7)]
-
-    entries = db.get_entries(query.from_user.id, 60)
-    by_date = entries_by_date(entries)
-
-    lines = [f"{emoji} *{cat} · {week_start.strftime('%d.%m')}–{(week_start + timedelta(days=6)).strftime('%d.%m')}*\n"]
-    for day in week_days:
-        day_str = day.strftime('%Y-%m-%d')
-        day_data = by_date.get(day_str, {}).get(cat)
-        day_label = day.strftime('%d.%m')
-        if day_data:
-            score, comment = day_data
-            comment_text = f" — _{comment}_" if comment else ""
-            lines.append(f"{score_color(score)} *{day_label}* {score}/10{comment_text}")
-        else:
-            lines.append(f"⬛ {day_label} — нет данных")
-
-    await query.message.reply_text("\n".join(lines), parse_mode='Markdown')
-
-
 async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     parts = query.data.split('_')
     date_str = parts[1]
     cat_idx = int(parts[2])
     cat = CATEGORIES[cat_idx]
     emoji = EMOJI[cat]
-
     entries = db.get_entries(query.from_user.id, 60)
     by_date = entries_by_date(entries)
     day_data = by_date.get(date_str, {}).get(cat)
     date_fmt = datetime.strptime(date_str, '%Y-%m-%d').strftime('%d %B')
-
     if day_data is None:
         await query.message.reply_text(
             f"{emoji} *{cat} · {date_fmt}*\n\n_Нет данных за этот день_",
@@ -519,14 +513,41 @@ async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 
+async def handle_week_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    week_start_str = parts[1]
+    cat_idx = int(parts[2])
+    cat = CATEGORIES[cat_idx]
+    emoji = EMOJI[cat]
+    week_start = datetime.strptime(week_start_str, '%Y-%m-%d').date()
+    week_days = [week_start + timedelta(days=i) for i in range(7)]
+    entries = db.get_entries(query.from_user.id, 60)
+    by_date = entries_by_date(entries)
+    lines = [f"{emoji} *{cat} · {week_start.strftime('%d.%m')}–{(week_start + timedelta(days=6)).strftime('%d.%m')}*\n"]
+    for day in week_days:
+        day_str = day.strftime('%Y-%m-%d')
+        day_data = by_date.get(day_str, {}).get(cat)
+        day_label = day.strftime('%d.%m')
+        if day_data:
+            score, comment = day_data
+            comment_text = f" — _{comment}_" if comment else ""
+            lines.append(f"{score_color(score)} *{day_label}* {score}/10{comment_text}")
+        else:
+            lines.append(f"⬛ {day_label} — нет данных")
+    await query.message.reply_text("\n".join(lines), parse_mode='Markdown')
+
+
 # ──────────────────────────────────────────────
-# Menu button handler
+# Menu buttons
 # ──────────────────────────────────────────────
 
 async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "📈 Динамика":
+    text = update.message.text
+    if text == "📈 Динамика":
         await cmd_dynamics(update, context)
-    elif update.message.text == "🔔 Напоминание":
+    elif text == "🔔 Напоминание":
         await cmd_time(update, context)
 
 
@@ -543,7 +564,6 @@ async def send_reminders(app: Application):
                 streak_text = ""
                 if streak >= 2:
                     streak_text = f"\n\n🔥 Ты заполняешь дневник уже *{streak} дней подряд*. Keep going!"
-
                 msg = random.choice(REMINDER_MESSAGES)
                 await app.bot.send_message(
                     chat_id=user_id,
