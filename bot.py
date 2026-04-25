@@ -6,34 +6,27 @@ from datetime import datetime, timedelta, timezone
 from openai import AsyncOpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters,
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ConversationHandler, ContextTypes, filters,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import database as db
 
-logging.basicConfig(
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s [%(levelname)s] %(name)s: %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ['BOT_TOKEN']
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 CATEGORIES = ['Здоровье', 'Настроение', 'Активность', 'Еда', 'Сон', 'Саморазвитие']
 EMOJI = {
-    'Здоровье':      '💊',
-    'Настроение':    '😊',
-    'Активность':    '🏃',
-    'Еда':           '🍎',
-    'Сон':           '😴',
-    'Саморазвитие':  '📚',
+    'Здоровье':     '💊',
+    'Настроение':   '😊',
+    'Активность':   '🏃',
+    'Еда':          '🍎',
+    'Сон':          '😴',
+    'Саморазвитие': '📚',
 }
 
 IMAGES = [
@@ -74,9 +67,6 @@ COMMENT_PROMPTS = {
     'Саморазвитие': "Что нового сегодня? Книга, урок, идея, открытие — даже маленькое считается 📖",
 }
 
-SET_TIME, SCORE, COMMENT = range(3)
-MOSCOW_TZ = timezone(timedelta(hours=3))
-
 SYSTEM_PROMPT = """Ты заботливый помощник по практике самонаблюдения.
 Помогаешь людям лучше понимать себя через ежедневный дневник самочувствия.
 Человек каждый день оценивает 6 сфер жизни по шкале 1-10 и оставляет комментарии:
@@ -84,6 +74,8 @@ SYSTEM_PROMPT = """Ты заботливый помощник по практи�
 Цель практики — замечать паттерны и лучше понимать что влияет на состояние.
 Твой тон: тёплый, честный, поддерживающий — без пафоса, осуждения и излишнего оптимизма.
 Пиши ТОЛЬКО на русском языке, включая все заголовки."""
+
+SET_TIME, SCORE, COMMENT = range(3)
 
 
 def moscow_now():
@@ -119,25 +111,6 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     ], resize_keyboard=True)
 
 
-async def reply(update: Update, text: str, **kwargs):
-    if update.callback_query:
-        await update.callback_query.message.reply_text(text, **kwargs)
-    else:
-        await update.message.reply_text(text, **kwargs)
-
-
-async def ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    idx = context.user_data['cat_idx']
-    cat = CATEGORIES[idx]
-    chat_id = update.effective_chat.id
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"{EMOJI[cat]} *{cat}*\nКак оцениваешь от 1 до 10?",
-        reply_markup=score_kb(),
-        parse_mode='Markdown'
-    )
-
-
 def entries_by_date(entries):
     by_date = {}
     for date, category, score, comment in entries:
@@ -162,22 +135,25 @@ def get_streak(user_id: int) -> int:
     return streak
 
 
+def ai_client():
+    return AsyncOpenAI(
+        api_key=os.environ['ROUTER_AI_KEY'],
+        base_url="https://api.routerai.ru/v1"
+    )
+
+
 # ──────────────────────────────────────────────
-# AI summary
+# AI: daily summary
 # ──────────────────────────────────────────────
 
-async def handle_text_in_score(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Нажми на цифру выше 👆")
-    return SCORE
+async def get_daily_summary(entries_today: list) -> str:
     if not entries_today:
         return ""
-
     lines = []
     for category, score, comment in entries_today:
         comment_str = f" — {comment}" if comment else ""
         lines.append(f"{EMOJI.get(category, '')} {category}: {score}/10{comment_str}")
     today_text = "\n".join(lines)
-
     prompt = (
         f"Вот записи за сегодня:\n{today_text}\n\n"
         f"Напиши короткий тёплый отклик на день — 2-3 предложения. "
@@ -186,13 +162,8 @@ async def handle_text_in_score(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Заканчивай мягким пожеланием на вечер или ночь. "
         f"Только русский язык, без markdown форматирования."
     )
-
     try:
-        client = AsyncOpenAI(
-            api_key=os.environ['ROUTER_AI_KEY'],
-            base_url="https://api.routerai.ru/v1"
-        )
-        response = await client.chat.completions.create(
+        response = await ai_client().chat.completions.create(
             model="deepseek/deepseek-v4-pro",
             max_tokens=200,
             messages=[
@@ -206,7 +177,11 @@ async def handle_text_in_score(update: Update, context: ContextTypes.DEFAULT_TYP
         return ""
 
 
+# ──────────────────────────────────────────────
+# AI: period summary
+# ──────────────────────────────────────────────
 
+async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
     entries = db.get_entries(user_id, days)
     if not entries:
         return ""
@@ -253,15 +228,10 @@ async def handle_text_in_score(update: Update, context: ContextTypes.DEFAULT_TYP
         f"- Названия блоков как в структуре (курсивом через _)\n"
         f"- Текст внутри блоков — обычный, без markdown\n"
         f"- Пустая строка между блоками\n"
-        f"- Если данных мало — честно скажи об этом в начале"
+        f"- Только русский язык"
     )
-
     try:
-        client = AsyncOpenAI(
-            api_key=os.environ['ROUTER_AI_KEY'],
-            base_url="https://api.routerai.ru/v1"
-        )
-        response = await client.chat.completions.create(
+        response = await ai_client().chat.completions.create(
             model="deepseek/deepseek-v4-pro",
             max_tokens=1000,
             messages=[
@@ -291,12 +261,10 @@ async def build_dynamics(user_id: int, days: int):
     header = f"📈 *Динамика за {period}* ({start_str} — {end_str})"
 
     keyboard = []
-
     if days == 7:
         for cat in CATEGORIES:
             cat_idx = CATEGORIES.index(cat)
-            scores = []
-            day_row = []
+            scores, day_row = [], []
             for day in day_list:
                 day_str = day.strftime('%Y-%m-%d')
                 score = by_date.get(day_str, {}).get(cat, (None, None))[0]
@@ -315,17 +283,12 @@ async def build_dynamics(user_id: int, days: int):
             cat_idx = CATEGORIES.index(cat)
             week_row = []
             for week in weeks:
-                week_scores = [
-                    by_date.get(d.strftime('%Y-%m-%d'), {}).get(cat, (None, None))[0]
-                    for d in week
-                ]
+                week_scores = [by_date.get(d.strftime('%Y-%m-%d'), {}).get(cat, (None, None))[0] for d in week]
                 filled = [s for s in week_scores if s is not None]
                 avg = sum(filled) / len(filled) if filled else None
-                color = score_color(avg)
-                label = f"{color} {week[0].strftime('%d.%m')}"
+                label = f"{score_color(avg)} {week[0].strftime('%d.%m')}"
                 week_row.append(InlineKeyboardButton(
-                    label,
-                    callback_data=f"week_{week[0].strftime('%Y-%m-%d')}_{cat_idx}"
+                    label, callback_data=f"week_{week[0].strftime('%Y-%m-%d')}_{cat_idx}"
                 ))
             keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}", callback_data="noop")])
             keyboard.append(week_row)
@@ -374,16 +337,12 @@ async def save_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         datetime.strptime(text, '%H:%M')
     except ValueError:
-        await update.message.reply_text(
-            "Не совсем понял формат 🙏 Напиши время вот так: `21:00`",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text("Не совсем понял формат 🙏 Напиши время вот так: `21:00`", parse_mode='Markdown')
         return SET_TIME
     db.set_reminder_time(update.effective_user.id, text)
     await update.message.reply_text(
         f"Готово! Буду напоминать каждый день в *{text}* 🌙",
-        reply_markup=main_menu_kb(),
-        parse_mode='Markdown'
+        reply_markup=main_menu_kb(), parse_mode='Markdown'
     )
     return ConversationHandler.END
 
@@ -391,6 +350,17 @@ async def save_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ──────────────────────────────────────────────
 # Fill diary
 # ──────────────────────────────────────────────
+
+async def ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    idx = context.user_data['cat_idx']
+    cat = CATEGORIES[idx]
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"{EMOJI[cat]} *{cat}*\nКак оцениваешь от 1 до 10?",
+        reply_markup=score_kb(),
+        parse_mode='Markdown'
+    )
+
 
 async def begin_fill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -400,13 +370,14 @@ async def begin_fill(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['cat_idx'] = 0
     context.user_data['fill_date'] = moscow_now().strftime('%Y-%m-%d')
     context.user_data['onboarding'] = False
-
-    intro = "Хорошо, давай пройдёмся по дню 🌿\nОтвечай честно — здесь нет правильных ответов."
-    if db.has_entry_today(user.id):
-        intro = "Ты уже заполнял сегодня — но можешь обновить записи 🌿"
-
-    await reply(update, intro)
+    intro = "Ты уже заполнял сегодня — но можешь обновить записи 🌿" if db.has_entry_today(user.id) else "Хорошо, давай пройдёмся по дню 🌿\nОтвечай честно — здесь нет правильных ответов."
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=intro)
     await ask_category(update, context)
+    return SCORE
+
+
+async def handle_text_in_score(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Нажми на цифру выше 👆")
     return SCORE
 
 
@@ -417,10 +388,9 @@ async def handle_score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['cur_score'] = score
     cat = CATEGORIES[context.user_data['cat_idx']]
     context.user_data['cur_cat'] = cat
-    prompt = COMMENT_PROMPTS.get(cat, "Хочешь добавить что-нибудь?")
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=f"*{score_color(score)} {score}/10*\n\n{prompt}",
+        text=f"*{score_color(score)} {score}/10*\n\n{COMMENT_PROMPTS.get(cat, 'Хочешь добавить что-нибудь?')}",
         parse_mode='Markdown'
     )
     return COMMENT
@@ -433,41 +403,26 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, comment):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    db.save_entry(
-        user_id,
-        context.user_data['fill_date'],
-        context.user_data['cur_cat'],
-        context.user_data['cur_score'],
-        comment
-    )
+    db.save_entry(user_id, context.user_data['fill_date'], context.user_data['cur_cat'], context.user_data['cur_score'], comment)
     context.user_data['cat_idx'] += 1
 
     if context.user_data['cat_idx'] >= len(CATEGORIES):
-        quote = random.choice(QUOTES)
         image_url = random.choice(IMAGES)
 
         # Get today's entries for daily summary
-        entries = db.get_entries(user_id, 1)
-        today_entries = [(cat, score, comment) for _, cat, score, comment in entries]
+        raw_entries = db.get_entries(user_id, 1)
+        today_entries = [(cat, score, comm) for _, cat, score, comm in raw_entries]
         daily_text = await get_daily_summary(today_entries)
         if not daily_text:
             daily_text = random.choice(QUOTES)
 
         if context.user_data.get('onboarding'):
             try:
-                await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=image_url,
-                    caption=f"✅ *Первая запись сделана!*\n\n{daily_text}",
-                    parse_mode='Markdown'
-                )
+                await context.bot.send_photo(chat_id=chat_id, photo=image_url,
+                    caption=f"✅ Первая запись сделана!\n\n{daily_text}")
             except Exception as e:
                 logger.warning(f"Photo send failed: {e}")
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"✅ *Первая запись сделана!*\n\n{daily_text}",
-                    parse_mode='Markdown'
-                )
+                await context.bot.send_message(chat_id=chat_id, text=f"✅ Первая запись сделана!\n\n{daily_text}")
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="В какое время каждый день мне присылать напоминание?\nНапиши в формате ЧЧ:ММ, например `21:00`",
@@ -476,22 +431,11 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             return SET_TIME
 
         try:
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo=image_url,
-                caption=daily_text,
-            )
+            await context.bot.send_photo(chat_id=chat_id, photo=image_url, caption=daily_text)
         except Exception as e:
             logger.warning(f"Photo send failed: {e}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=daily_text,
-            )
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="✅",
-            reply_markup=main_menu_kb()
-        )
+            await context.bot.send_message(chat_id=chat_id, text=daily_text)
+        await context.bot.send_message(chat_id=chat_id, text="✅", reply_markup=main_menu_kb())
         return ConversationHandler.END
 
     await ask_category(update, context)
@@ -529,20 +473,12 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     days = int(query.data.split('_')[2])
-    user_id = query.from_user.id
-    header, keyboard, ai_text = await build_dynamics(user_id, days)
+    header, keyboard, ai_text = await build_dynamics(query.from_user.id, days)
     await query.message.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
-
     summary_msg_id = context.user_data.get('summary_msg_id')
-    chat_id = query.message.chat_id
     if summary_msg_id and ai_text:
         try:
-            await query.get_bot().edit_message_text(
-                chat_id=chat_id,
-                message_id=summary_msg_id,
-                text=ai_text,
-                parse_mode='Markdown'
-            )
+            await context.bot.edit_message_text(chat_id=query.message.chat_id, message_id=summary_msg_id, text=ai_text, parse_mode='Markdown')
         except Exception:
             msg = await query.message.reply_text(ai_text, parse_mode='Markdown')
             context.user_data['summary_msg_id'] = msg.message_id
@@ -555,52 +491,37 @@ async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     parts = query.data.split('_')
-    date_str = parts[1]
-    cat_idx = int(parts[2])
+    date_str, cat_idx = parts[1], int(parts[2])
     cat = CATEGORIES[cat_idx]
-    emoji = EMOJI[cat]
-    entries = db.get_entries(query.from_user.id, 60)
-    by_date = entries_by_date(entries)
+    by_date = entries_by_date(db.get_entries(query.from_user.id, 60))
     day_data = by_date.get(date_str, {}).get(cat)
     date_fmt = datetime.strptime(date_str, '%Y-%m-%d').strftime('%d %B')
     if day_data is None:
-        await query.message.reply_text(
-            f"{emoji} *{cat} · {date_fmt}*\n\n_Нет данных за этот день_",
-            parse_mode='Markdown'
-        )
+        await query.message.reply_text(f"{EMOJI[cat]} *{cat} · {date_fmt}*\n\n_Нет данных за этот день_", parse_mode='Markdown')
     else:
         score, comment = day_data
-        color = score_color(score)
         comment_text = f"\n\n_{comment}_" if comment else ""
-        await query.message.reply_text(
-            f"{emoji} *{cat} · {date_fmt}*\n\n{color} *{score}/10*{comment_text}",
-            parse_mode='Markdown'
-        )
+        await query.message.reply_text(f"{EMOJI[cat]} *{cat} · {date_fmt}*\n\n{score_color(score)} *{score}/10*{comment_text}", parse_mode='Markdown')
 
 
 async def handle_week_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     parts = query.data.split('_')
-    week_start_str = parts[1]
-    cat_idx = int(parts[2])
-    cat = CATEGORIES[cat_idx]
-    emoji = EMOJI[cat]
-    week_start = datetime.strptime(week_start_str, '%Y-%m-%d').date()
+    week_start = datetime.strptime(parts[1], '%Y-%m-%d').date()
+    cat = CATEGORIES[int(parts[2])]
     week_days = [week_start + timedelta(days=i) for i in range(7)]
-    entries = db.get_entries(query.from_user.id, 60)
-    by_date = entries_by_date(entries)
-    lines = [f"{emoji} *{cat} · {week_start.strftime('%d.%m')}–{(week_start + timedelta(days=6)).strftime('%d.%m')}*\n"]
+    by_date = entries_by_date(db.get_entries(query.from_user.id, 60))
+    lines = [f"{EMOJI[cat]} *{cat} · {week_start.strftime('%d.%m')}–{(week_start + timedelta(days=6)).strftime('%d.%m')}*\n"]
     for day in week_days:
         day_str = day.strftime('%Y-%m-%d')
         day_data = by_date.get(day_str, {}).get(cat)
-        day_label = day.strftime('%d.%m')
         if day_data:
             score, comment = day_data
             comment_text = f" — _{comment}_" if comment else ""
-            lines.append(f"{score_color(score)} *{day_label}* {score}/10{comment_text}")
+            lines.append(f"{score_color(score)} *{day.strftime('%d.%m')}* {score}/10{comment_text}")
         else:
-            lines.append(f"⬛ {day_label} — нет данных")
+            lines.append(f"⬛ {day.strftime('%d.%m')} — нет данных")
     await query.message.reply_text("\n".join(lines), parse_mode='Markdown')
 
 
@@ -626,17 +547,13 @@ async def send_reminders(app: Application):
         if reminder_time == current_time:
             try:
                 streak = get_streak(user_id)
-                streak_text = ""
-                if streak >= 2:
-                    streak_text = f"\n\n🔥 Ты заполняешь дневник уже *{streak} дней подряд*. Keep going!"
+                streak_text = f"\n\n🔥 Ты заполняешь дневник уже *{streak} дней подряд*. Keep going!" if streak >= 2 else ""
                 msg = random.choice(REMINDER_MESSAGES)
                 await app.bot.send_message(
                     chat_id=user_id,
                     text=msg + streak_text,
                     parse_mode='Markdown',
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("📝 Заполнить", callback_data='fill_now')
-                    ]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📝 Заполнить", callback_data='fill_now')]])
                 )
             except Exception as e:
                 logger.warning(f"Reminder failed for user {user_id}: {e}")
@@ -655,14 +572,12 @@ def main():
             CommandHandler('time', cmd_time),
             MessageHandler(filters.Regex("^🔔 Напоминание$"), cmd_time),
         ],
-        states={
-            SET_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_time)]
-        },
+        states={SET_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_time)]},
         fallbacks=[],
         allow_reentry=True,
     )
 
-    onboarding_and_fill = ConversationHandler(
+    fill_conv = ConversationHandler(
         entry_points=[
             CommandHandler('start', cmd_start),
             CommandHandler('fill', begin_fill),
@@ -670,7 +585,7 @@ def main():
             MessageHandler(filters.Regex("^📝 Заполнить$"), begin_fill),
         ],
         states={
-            SCORE:    [
+            SCORE: [
                 CallbackQueryHandler(handle_score, pattern=r'^s\d+$'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_in_score),
             ],
@@ -682,7 +597,7 @@ def main():
     )
 
     app.add_handler(time_conv)
-    app.add_handler(onboarding_and_fill)
+    app.add_handler(fill_conv)
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern='^noop$'))
     app.add_handler(CallbackQueryHandler(handle_dynamics_toggle, pattern=r'^dyn_toggle_'))
     app.add_handler(CallbackQueryHandler(handle_week_tap, pattern=r'^week_'))
