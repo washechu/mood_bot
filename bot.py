@@ -421,12 +421,20 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             return SET_TIME
 
         # Regular fill - send photo with caption
-        await update.get_bot().send_photo(
-            chat_id=chat_id,
-            photo=image_url,
-            caption=f"_{quote}_",
-            parse_mode='Markdown'
-        )
+        try:
+            await update.get_bot().send_photo(
+                chat_id=chat_id,
+                photo=image_url,
+                caption=f"_{quote}_",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.warning(f"Photo send failed: {e}")
+            await update.get_bot().send_message(
+                chat_id=chat_id,
+                text=f"_{quote}_",
+                parse_mode='Markdown'
+            )
         if update.callback_query:
             await update.callback_query.message.reply_text("✅", reply_markup=main_menu_kb())
         else:
