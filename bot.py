@@ -4,6 +4,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 import groq
+from openai import AsyncOpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -191,7 +192,7 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         f"Пиши мягко, поддерживающе, без осуждения и без излишнего пафоса.\n\n"
         f"Данные дневника за {days} дней:\n{diary_text}\n\n"
         f"Структура ответа (строго следуй ей):\n{structure}\n\n"
-        f"Важно: пиши на русском, тепло и по-человечески. Не больше 250 слов.\n"
+        f"Важно: пиши ТОЛЬКО на русском языке, включая все заголовки блоков. Не использовать английские слова ни в каком месте. Не больше 250 слов.\n"
         f"Форматирование строго такое:\n"
         f"- Название блока: _курсив_ (подчёркивания), например _Как прошла неделя_\n"
         f"- Текст внутри блока: обычный, без markdown\n"
@@ -199,9 +200,12 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
     )
 
     try:
-        client = groq.Groq(api_key=os.environ['GROQ_API_KEY'])
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        client = AsyncOpenAI(
+            api_key=os.environ['ROUTER_AI_KEY'],
+            base_url="https://api.routerai.ru/v1"
+        )
+        response = await client.chat.completions.create(
+            model="deepseek/deepseek-v4-pro",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
