@@ -129,9 +129,10 @@ async def reply(update: Update, text: str, **kwargs):
 async def ask_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     idx = context.user_data['cat_idx']
     cat = CATEGORIES[idx]
-    await reply(
-        update,
-        f"{EMOJI[cat]} *{cat}*\nКак оцениваешь от 1 до 10?",
+    chat_id = update.effective_chat.id
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"{EMOJI[cat]} *{cat}*\nКак оцениваешь от 1 до 10?",
         reply_markup=score_kb(),
         parse_mode='Markdown'
     )
@@ -165,7 +166,45 @@ def get_streak(user_id: int) -> int:
 # AI summary
 # ──────────────────────────────────────────────
 
-async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
+async def get_daily_summary(entries_today: list) -> str:
+    if not entries_today:
+        return ""
+
+    lines = []
+    for category, score, comment in entries_today:
+        comment_str = f" — {comment}" if comment else ""
+        lines.append(f"{EMOJI.get(category, '')} {category}: {score}/10{comment_str}")
+    today_text = "\n".join(lines)
+
+    prompt = (
+        f"Вот записи за сегодня:\n{today_text}\n\n"
+        f"Напиши короткий тёплый отклик на день — 2-3 предложения. "
+        f"Не анализ, не советы — просто живое человеческое 'я тебя слышу'. "
+        f"Отметь что-то конкретное из записей, не говори общими словами. "
+        f"Заканчивай мягким пожеланием на вечер или ночь. "
+        f"Только русский язык, без markdown форматирования."
+    )
+
+    try:
+        client = AsyncOpenAI(
+            api_key=os.environ['ROUTER_AI_KEY'],
+            base_url="https://api.routerai.ru/v1"
+        )
+        response = await client.chat.completions.create(
+            model="deepseek/deepseek-v4-pro",
+            max_tokens=200,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Daily summary error: {e}")
+        return ""
+
+
+
     entries = db.get_entries(user_id, days)
     if not entries:
         return ""
@@ -377,8 +416,9 @@ async def handle_score(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cat = CATEGORIES[context.user_data['cat_idx']]
     context.user_data['cur_cat'] = cat
     prompt = COMMENT_PROMPTS.get(cat, "Хочешь добавить что-нибудь?")
-    await query.message.reply_text(
-        f"*{score_color(score)} {score}/10*\n\n{prompt}",
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"*{score_color(score)} {score}/10*\n\n{prompt}",
         parse_mode='Markdown'
     )
     return COMMENT
@@ -390,6 +430,7 @@ async def handle_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, comment):
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     db.save_entry(
         user_id,
         context.user_data['fill_date'],
@@ -402,43 +443,53 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     if context.user_data['cat_idx'] >= len(CATEGORIES):
         quote = random.choice(QUOTES)
         image_url = random.choice(IMAGES)
-        chat_id = update.effective_chat.id
+
+        # Get today's entries for daily summary
+        entries = db.get_entries(user_id, 1)
+        today_entries = [(cat, score, comment) for _, cat, score, comment in entries]
+        daily_text = await get_daily_summary(today_entries)
+        if not daily_text:
+            daily_text = random.choice(QUOTES)
 
         if context.user_data.get('onboarding'):
-            # Send image first
-            await update.get_bot().send_photo(
-                chat_id=chat_id,
-                photo=image_url,
-                caption=f"✅ *Первая запись сделана!*\n\n_{quote}_",
-                parse_mode='Markdown'
-            )
-            # Then ask for time
-            await update.get_bot().send_message(
+            try:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=image_url,
+                    caption=f"✅ *Первая запись сделана!*\n\n{daily_text}",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.warning(f"Photo send failed: {e}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"✅ *Первая запись сделана!*\n\n{daily_text}",
+                    parse_mode='Markdown'
+                )
+            await context.bot.send_message(
                 chat_id=chat_id,
                 text="В какое время каждый день мне присылать напоминание?\nНапиши в формате ЧЧ:ММ, например `21:00`",
                 parse_mode='Markdown'
             )
             return SET_TIME
 
-        # Regular fill - send photo with caption
         try:
-            await update.get_bot().send_photo(
+            await context.bot.send_photo(
                 chat_id=chat_id,
                 photo=image_url,
-                caption=f"_{quote}_",
-                parse_mode='Markdown'
+                caption=daily_text,
             )
         except Exception as e:
             logger.warning(f"Photo send failed: {e}")
-            await update.get_bot().send_message(
+            await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"_{quote}_",
-                parse_mode='Markdown'
+                text=daily_text,
             )
-        if update.callback_query:
-            await update.callback_query.message.reply_text("✅", reply_markup=main_menu_kb())
-        else:
-            await update.message.reply_text("✅", reply_markup=main_menu_kb())
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="✅",
+            reply_markup=main_menu_kb()
+        )
         return ConversationHandler.END
 
     await ask_category(update, context)
@@ -617,7 +668,10 @@ def main():
             MessageHandler(filters.Regex("^📝 Заполнить$"), begin_fill),
         ],
         states={
-            SCORE:    [CallbackQueryHandler(handle_score, pattern=r'^s\d+$')],
+            SCORE:    [
+                CallbackQueryHandler(handle_score, pattern=r'^s\d+$'),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text("Нажми на цифру выше 👆")),
+            ],
             COMMENT:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_comment)],
             SET_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_time)],
         },
