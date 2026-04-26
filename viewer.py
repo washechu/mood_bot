@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from flask import Flask, request, render_template_string
 
 DB_PATH = os.environ.get('DB_PATH', 'mood_tracker.db')
-VIEWER_PORT = int(os.environ.get('VIEWER_PORT', 5000))
 
 app = Flask(__name__)
 
@@ -269,4 +268,4 @@ def user_view(user_id):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=VIEWER_PORT, debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
