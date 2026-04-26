@@ -100,6 +100,19 @@ def get_days_since_first_entry(user_id: int) -> int:
     return (datetime.now(MOSCOW_TZ).date() - first).days
 
 
+def get_entries_by_date(user_id: int, date: str):
+    """Returns list of (category, score, comment) for a specific date"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'SELECT category, score, comment FROM entries WHERE user_id = ? AND date = ?',
+        (user_id, date)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
 def get_entries(user_id: int, days: int = 30):
     """Returns list of (date, category, score, comment)"""
     conn = sqlite3.connect(DB_PATH)

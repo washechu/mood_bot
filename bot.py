@@ -198,14 +198,17 @@ async def get_daily_summary(entries_today: list) -> str:
         try:
             response = await ai_client().chat.completions.create(
                 model="deepseek/deepseek-v4-pro",
+                max_tokens=500,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ]
             )
-            content = response.choices[0].message.content
+            choice = response.choices[0]
+            content = choice.message.content
             if content:
                 return content.strip()
+            logger.warning(f"Daily summary empty content, finish_reason={choice.finish_reason}")
         except Exception as e:
             logger.error(f"Daily summary error (attempt {attempt + 1}): {e}")
     return ""
@@ -460,8 +463,9 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         )
 
         # Get today's entries for daily summary
-        raw_entries = db.get_entries(user_id, 1)
-        today_entries = [(cat, score, comm) for _, cat, score, comm in raw_entries]
+        fill_date = context.user_data['fill_date']
+        raw_entries = db.get_entries_by_date(user_id, fill_date)
+        today_entries = [(cat, score, comm) for cat, score, comm in raw_entries]
         daily_text = await get_daily_summary(today_entries)
         if not daily_text:
             daily_text = random.choice(QUOTES)
