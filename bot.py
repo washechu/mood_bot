@@ -38,6 +38,9 @@ IMAGES = [
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_walking.png",
 ]
 
+# url -> telegram file_id (persists for lifetime of process)
+_image_file_ids: dict[str, str] = {}
+
 QUOTES = [
     "Каждый день — это маленький шаг к лучшей версии себя 🌱",
     "Ты уже сделал что-то важное — остановился и прислушался к себе 💙",
@@ -317,13 +320,15 @@ async def build_dynamics(user_id: int, days: int):
             keyboard.append([InlineKeyboardButton(f"{EMOJI[cat]} {cat}", callback_data="noop")])
             keyboard.append(week_row)
 
+    mode = 'week' if days == 7 else 'month'
     keyboard.append([
         InlineKeyboardButton("📅 Показать месяц", callback_data="dyn_toggle_30")
         if days == 7 else
-        InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7")
+        InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7"),
+        InlineKeyboardButton("🧠 Анализ", callback_data=f"dyn_ai_{days}_{mode}"),
     ])
 
-    ai_text = await get_ai_summary(user_id, days, 'week' if days == 7 else 'month')
+    ai_text = await get_ai_summary(user_id, days, mode)
     return header, InlineKeyboardMarkup(keyboard), ai_text
 
 
@@ -458,8 +463,11 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
 
         if context.user_data.get('onboarding'):
             try:
-                await context.bot.send_photo(chat_id=chat_id, photo=image_url,
+                photo = _image_file_ids.get(image_url, image_url)
+                msg = await context.bot.send_photo(chat_id=chat_id, photo=photo,
                     caption=f"✅ Первая запись сделана!\n\n{daily_text}")
+                if image_url not in _image_file_ids:
+                    _image_file_ids[image_url] = msg.photo[-1].file_id
             except Exception as e:
                 logger.warning(f"Photo send failed: {e}")
                 await context.bot.send_message(chat_id=chat_id, text=f"✅ Первая запись сделана!\n\n{daily_text}")
@@ -470,7 +478,10 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             )
             return SET_TIME
         try:
-            await context.bot.send_photo(chat_id=chat_id, photo=image_url, caption=daily_text)
+            photo = _image_file_ids.get(image_url, image_url)
+            msg = await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=daily_text)
+            if image_url not in _image_file_ids:
+                _image_file_ids[image_url] = msg.photo[-1].file_id
         except Exception as e:
             logger.error(f"Photo send failed with URL {image_url}: {type(e).__name__}: {e}")
             await context.bot.send_message(chat_id=chat_id, text=daily_text)
@@ -532,6 +543,19 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     if ai_text:
         await context.bot.send_message(chat_id=chat_id, text=ai_text, parse_mode='Markdown')
     await context.bot.send_message(chat_id=chat_id, text=header, reply_markup=keyboard, parse_mode='Markdown')
+
+
+async def handle_ai_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    days, mode = int(parts[2]), parts[3]
+    await query.message.reply_text("_Загружаю анализ… ⏰_", parse_mode='Markdown')
+    ai_text = await get_ai_summary(query.from_user.id, days, mode)
+    if ai_text:
+        await query.message.reply_text(ai_text, parse_mode='Markdown')
+    else:
+        await query.message.reply_text("_Не удалось загрузить анализ — попробуй чуть позже_", parse_mode='Markdown')
 
 
 async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -658,6 +682,7 @@ def main():
     app.add_handler(fill_conv)
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern='^noop$'))
     app.add_handler(CallbackQueryHandler(handle_dynamics_toggle, pattern=r'^dyn_toggle_'))
+    app.add_handler(CallbackQueryHandler(handle_ai_request, pattern=r'^dyn_ai_'))
     app.add_handler(CallbackQueryHandler(handle_week_tap, pattern=r'^week_'))
     app.add_handler(CallbackQueryHandler(handle_dynamics_tap, pattern=r'^dyn_'))
     app.add_handler(CommandHandler('dynamics', cmd_dynamics))
