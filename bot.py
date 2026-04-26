@@ -328,8 +328,7 @@ async def build_dynamics(user_id: int, days: int):
         InlineKeyboardButton("🧠 Анализ", callback_data=f"dyn_ai_{days}_{mode}"),
     ])
 
-    ai_text = await get_ai_summary(user_id, days, mode)
-    return header, InlineKeyboardMarkup(keyboard), ai_text
+    return header, InlineKeyboardMarkup(keyboard)
 
 
 # ──────────────────────────────────────────────
@@ -517,10 +516,8 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     msg = await update.message.reply_text("_Собираю динамику… 📈_", parse_mode='Markdown')
-    header, keyboard, ai_text = await build_dynamics(user_id, 7)
+    header, keyboard = await build_dynamics(user_id, 7)
     await msg.delete()
-    if ai_text:
-        await update.message.reply_text(ai_text, parse_mode='Markdown')
     await update.message.reply_text(header, reply_markup=keyboard, parse_mode='Markdown')
 
 
@@ -533,15 +530,13 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
 
     await query.message.edit_text(f"_Собираю данные за {period}… 📈_", parse_mode='Markdown')
 
-    header, keyboard, ai_text = await build_dynamics(query.from_user.id, days)
+    header, keyboard = await build_dynamics(query.from_user.id, days)
 
     try:
         await query.message.delete()
     except Exception:
         pass
 
-    if ai_text:
-        await context.bot.send_message(chat_id=chat_id, text=ai_text, parse_mode='Markdown')
     await context.bot.send_message(chat_id=chat_id, text=header, reply_markup=keyboard, parse_mode='Markdown')
 
 
