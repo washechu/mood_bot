@@ -275,9 +275,11 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
                     {"role": "user", "content": prompt}
                 ]
             )
-            content = response.choices[0].message.content
+            choice = response.choices[0]
+            content = choice.message.content
             if content:
                 return f"{header}\n\n{content.strip()}"
+            logger.warning(f"AI summary empty content, finish_reason={choice.finish_reason}")
         except Exception as e:
             logger.error(f"AI summary error (attempt {attempt + 1}): {e}")
     return ""
