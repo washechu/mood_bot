@@ -114,14 +114,15 @@ def get_entries_by_date(user_id: int, date: str):
 
 
 def get_entries(user_id: int, days: int = 30):
-    """Returns list of (date, category, score, comment)"""
+    """Returns list of (date, category, score, comment) for last N days by Moscow time"""
+    from_date = (datetime.now(MOSCOW_TZ) - timedelta(days=days)).strftime('%Y-%m-%d')
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
         '''SELECT date, category, score, comment FROM entries
-           WHERE user_id = ? AND date >= date('now', ?)
+           WHERE user_id = ? AND date >= ?
            ORDER BY date ASC''',
-        (user_id, f'-{days} days')
+        (user_id, from_date)
     )
     rows = c.fetchall()
     conn.close()
