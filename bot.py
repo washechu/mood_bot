@@ -191,7 +191,10 @@ async def get_daily_summary(entries_today: list) -> str:
                 {"role": "user", "content": prompt}
             ]
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if not content:
+            return ""
+        return content.strip()
     except Exception as e:
         logger.error(f"Daily summary error: {e}")
         return ""
@@ -320,7 +323,10 @@ async def build_dynamics(user_id: int, days: int):
         InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7")
     ])
 
-    ai_text = await get_ai_summary(user_id, days, 'week' if days == 7 else 'month')
+    mode = 'week' if days == 7 else 'month'
+    ai_text = await get_ai_summary(user_id, days, mode)
+    if not ai_text:
+        ai_text = await get_ai_summary(user_id, days, mode)
     return header, InlineKeyboardMarkup(keyboard), ai_text
 
 
@@ -428,7 +434,10 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
     context.user_data['cat_idx'] += 1
 
     if context.user_data['cat_idx'] >= len(CATEGORIES):
-        image_url = random.choice(IMAGES)
+        last_image = context.user_data.get('last_image')
+        pool = [i for i in IMAGES if i != last_image] or IMAGES
+        image_url = random.choice(pool)
+        context.user_data['last_image'] = image_url
 
         # Show intermediate message while AI generates
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
