@@ -227,7 +227,8 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
     for date, category, score, comment in entries:
         by_date.setdefault(str(date)[:10], []).append((category, score, comment))
 
-    if len(by_date) < 2:
+    min_days = 3 if days == 7 else 10
+    if len(by_date) < min_days:
         return "_Данных пока маловато — возвращайся через несколько дней, тогда смогу увидеть паттерны 🌱_"
 
     lines = []
