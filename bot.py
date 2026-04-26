@@ -464,7 +464,11 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         except Exception as e:
             logger.error(f"Photo send failed with URL {image_url}: {type(e).__name__}: {e}")
             await context.bot.send_message(chat_id=chat_id, text=daily_text)
-        await context.bot.send_message(chat_id=chat_id, text="✅", reply_markup=main_menu_kb())
+
+        streak = get_streak(user_id)
+        streak_text = f"🔥 {streak} {'день' if streak % 10 == 1 and streak % 100 != 11 else 'дня' if 2 <= streak % 10 <= 4 and not 12 <= streak % 100 <= 14 else 'дней'} подряд" if streak >= 2 else ""
+        done_text = f"✅  {streak_text}" if streak_text else "✅"
+        await context.bot.send_message(chat_id=chat_id, text=done_text, reply_markup=main_menu_kb())
         return ConversationHandler.END
 
     await ask_category(update, context)
