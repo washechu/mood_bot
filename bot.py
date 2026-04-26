@@ -31,11 +31,19 @@ EMOJI = {
 }
 
 IMAGES = [
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_bicycle.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_cooking.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_english.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_jumping.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_pancakes.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_reading.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_running.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_sleeping.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_train.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_training.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_walking.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_watching.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_working.png",
 ]
 
 # url -> telegram file_id (persists for lifetime of process)
