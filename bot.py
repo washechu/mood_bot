@@ -321,12 +321,15 @@ async def build_dynamics(user_id: int, days: int):
             keyboard.append(week_row)
 
     mode = 'week' if days == 7 else 'month'
-    keyboard.append([
+    bottom_row = [
         InlineKeyboardButton("📅 Показать месяц", callback_data="dyn_toggle_30")
         if days == 7 else
-        InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7"),
-        InlineKeyboardButton("🧠 Анализ", callback_data=f"dyn_ai_{days}_{mode}"),
-    ])
+        InlineKeyboardButton("📅 Показать неделю", callback_data="dyn_toggle_7")
+    ]
+    days_with_data = len(by_date)
+    if (days == 7 and days_with_data >= 7) or (days == 30 and days_with_data >= 28):
+        bottom_row.append(InlineKeyboardButton("🧠 Анализ", callback_data=f"dyn_ai_{days}_{mode}"))
+    keyboard.append(bottom_row)
 
     return header, InlineKeyboardMarkup(keyboard)
 
@@ -545,8 +548,12 @@ async def handle_ai_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     parts = query.data.split('_')
     days, mode = int(parts[2]), parts[3]
-    await query.message.reply_text("_Загружаю анализ… ⏰_", parse_mode='Markdown')
+    loading = await query.message.reply_text("_Загружаю анализ… ⏰_", parse_mode='Markdown')
     ai_text = await get_ai_summary(query.from_user.id, days, mode)
+    try:
+        await loading.delete()
+    except Exception:
+        pass
     if ai_text:
         await query.message.reply_text(ai_text, parse_mode='Markdown')
     else:
