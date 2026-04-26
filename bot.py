@@ -183,21 +183,21 @@ async def get_daily_summary(entries_today: list) -> str:
         f"Замечай что-то конкретное из записей — покажи что услышал человека. "
         f"Только русский язык, без markdown."
     )
-    try:
-        response = await ai_client().chat.completions.create(
-            model="deepseek/deepseek-v4-pro",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        content = response.choices[0].message.content
-        if not content:
-            return ""
-        return content.strip()
-    except Exception as e:
-        logger.error(f"Daily summary error: {e}")
-        return ""
+    for attempt in range(2):
+        try:
+            response = await ai_client().chat.completions.create(
+                model="deepseek/deepseek-v4-pro",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            content = response.choices[0].message.content
+            if content:
+                return content.strip()
+        except Exception as e:
+            logger.error(f"Daily summary error (attempt {attempt + 1}): {e}")
+    return ""
 
 
 # ──────────────────────────────────────────────
@@ -251,22 +251,22 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         f"- Пустая строка между блоками\n"
         f"- Только русский язык"
     )
-    try:
-        response = await ai_client().chat.completions.create(
-            model="deepseek/deepseek-v4-pro",
-            max_tokens=2000,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        content = response.choices[0].message.content
-        if not content:
-            return ""
-        return f"{header}\n\n{content.strip()}"
-    except Exception as e:
-        logger.error(f"AI summary error: {e}")
-        return ""
+    for attempt in range(2):
+        try:
+            response = await ai_client().chat.completions.create(
+                model="deepseek/deepseek-v4-pro",
+                max_tokens=2000,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            content = response.choices[0].message.content
+            if content:
+                return f"{header}\n\n{content.strip()}"
+        except Exception as e:
+            logger.error(f"AI summary error (attempt {attempt + 1}): {e}")
+    return ""
 
 
 # ──────────────────────────────────────────────
@@ -323,10 +323,7 @@ async def build_dynamics(user_id: int, days: int):
         InlineKeyboardButton("← Назад к неделе", callback_data="dyn_toggle_7")
     ])
 
-    mode = 'week' if days == 7 else 'month'
-    ai_text = await get_ai_summary(user_id, days, mode)
-    if not ai_text:
-        ai_text = await get_ai_summary(user_id, days, mode)
+    ai_text = await get_ai_summary(user_id, days, 'week' if days == 7 else 'month')
     return header, InlineKeyboardMarkup(keyboard), ai_text
 
 
