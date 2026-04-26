@@ -253,7 +253,7 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
     try:
         response = await ai_client().chat.completions.create(
             model="deepseek/deepseek-v4-pro",
-            max_tokens=1000,
+            max_tokens=2000,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
@@ -498,14 +498,25 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Dynamics commands
 # ──────────────────────────────────────────────
 
+def _split_text(text: str, limit: int = 4000) -> list[str]:
+    if len(text) <= limit:
+        return [text]
+    parts = []
+    while text:
+        parts.append(text[:limit])
+        text = text[limit:]
+    return parts
+
+
 async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     msg = await update.message.reply_text("_Собираю динамику… 📈_", parse_mode='Markdown')
     header, keyboard, ai_text = await build_dynamics(user_id, 7)
-    await msg.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
+    await msg.delete()
     if ai_text:
-        summary_msg = await update.message.reply_text(ai_text, parse_mode='Markdown')
-        context.user_data['summary_msg_id'] = summary_msg.message_id
+        for chunk in _split_text(ai_text):
+            await update.message.reply_text(chunk, parse_mode='Markdown')
+    await update.message.reply_text(header, reply_markup=keyboard, parse_mode='Markdown')
 
 
 async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -513,28 +524,21 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     days = int(query.data.split('_')[2])
     period = "месяц" if days == 30 else "неделю"
+    chat_id = query.message.chat_id
 
     await query.message.edit_text(f"_Собираю данные за {period}… 📈_", parse_mode='Markdown')
 
     header, keyboard, ai_text = await build_dynamics(query.from_user.id, days)
 
-    # Delete old calendar and summary, send fresh ones at the bottom
-    old_summary_id = context.user_data.get('summary_msg_id')
     try:
         await query.message.delete()
     except Exception:
         pass
-    if old_summary_id:
-        try:
-            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=old_summary_id)
-        except Exception:
-            pass
 
-    new_cal = await context.bot.send_message(chat_id=query.message.chat_id, text=header, reply_markup=keyboard, parse_mode='Markdown')
     if ai_text:
-        summary_msg = await context.bot.send_message(chat_id=query.message.chat_id, text=ai_text, parse_mode='Markdown')
-        context.user_data['summary_msg_id'] = summary_msg.message_id
-    context.user_data['calendar_msg_id'] = new_cal.message_id
+        for chunk in _split_text(ai_text):
+            await context.bot.send_message(chat_id=chat_id, text=chunk, parse_mode='Markdown')
+    await context.bot.send_message(chat_id=chat_id, text=header, reply_markup=keyboard, parse_mode='Markdown')
 
 
 async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
