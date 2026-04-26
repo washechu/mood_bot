@@ -1,6 +1,7 @@
 import os
 import logging
 import random
+import threading
 from datetime import datetime, timedelta, timezone
 
 from openai import AsyncOpenAI
@@ -591,8 +592,19 @@ async def send_reminders(app: Application):
 # Main
 # ──────────────────────────────────────────────
 
+def start_viewer():
+    from viewer import app as flask_app
+    port = int(os.environ.get('PORT', 5000))
+    flask_app.run(host='0.0.0.0', port=port, use_reloader=False)
+
+
 def main():
     db.init_db()
+
+    viewer_thread = threading.Thread(target=start_viewer, daemon=True)
+    viewer_thread.start()
+    logger.info("🌐 Viewer started")
+
     app = Application.builder().token(TOKEN).build()
 
     time_conv = ConversationHandler(
