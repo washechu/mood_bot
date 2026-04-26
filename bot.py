@@ -259,7 +259,10 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
                 {"role": "user", "content": prompt}
             ]
         )
-        return f"{header}\n\n{response.choices[0].message.content}"
+        content = response.choices[0].message.content
+        if not content:
+            return ""
+        return f"{header}\n\n{content.strip()}"
     except Exception as e:
         logger.error(f"AI summary error: {e}")
         return ""
@@ -433,7 +436,7 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
         thinking_msg = await context.bot.send_message(
             chat_id=chat_id,
-            text="_Обдумываю это…_",
+            text="_Обдумываю это… ⏰_",
             parse_mode='Markdown'
         )
 
@@ -443,6 +446,11 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         daily_text = await get_daily_summary(today_entries)
         if not daily_text:
             daily_text = random.choice(QUOTES)
+
+        try:
+            await thinking_msg.delete()
+        except Exception:
+            pass
 
         if context.user_data.get('onboarding'):
             try:
@@ -457,8 +465,6 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
                 parse_mode='Markdown'
             )
             return SET_TIME
-
-        await thinking_msg.delete()
         try:
             await context.bot.send_photo(chat_id=chat_id, photo=image_url, caption=daily_text)
         except Exception as e:
@@ -494,7 +500,7 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    msg = await update.message.reply_text("Собираю динамику… 📈")
+    msg = await update.message.reply_text("_Собираю динамику… 📈_", parse_mode='Markdown')
     header, keyboard, ai_text = await build_dynamics(user_id, 7)
     await msg.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
     if ai_text:
