@@ -1,6 +1,8 @@
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+MOSCOW_TZ = timezone(timedelta(hours=3))
 
 DB_PATH = os.environ.get('DB_PATH', 'mood_tracker.db')
 
@@ -102,7 +104,7 @@ def get_entries(user_id: int, days: int = 30):
 
 
 def has_entry_today(user_id: int) -> bool:
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = datetime.now(MOSCOW_TZ).strftime('%Y-%m-%d')
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute(
