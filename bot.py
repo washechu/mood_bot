@@ -229,7 +229,10 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
 
     min_days = 3 if days == 7 else 10
     if len(by_date) < min_days:
-        return "_Данных пока маловато — возвращайся через несколько дней, тогда смогу увидеть паттерны 🌱_"
+        if mode == 'week':
+            return f"_Для анализа недели нужно минимум 3 дня — сейчас есть {len(by_date)}. Возвращайся через несколько дней 🌱_"
+        else:
+            return f"_Для анализа месяца нужно минимум 10 дней — сейчас есть {len(by_date)}. Продолжай заполнять дневник 🌱_"
 
     lines = []
     for date in sorted(by_date.keys()):
@@ -339,7 +342,7 @@ async def build_dynamics(user_id: int, days: int):
         InlineKeyboardButton("📅 Показать месяц", callback_data="dyn_toggle_30")
         if days == 7 else
         InlineKeyboardButton("📅 Показать неделю", callback_data="dyn_toggle_7"),
-        InlineKeyboardButton("🧠 Анализ", callback_data=f"dyn_ai_{days}_{mode}"),
+        InlineKeyboardButton("🧠 Анализ недели" if days == 7 else "🧠 Анализ месяца", callback_data=f"dyn_ai_{days}_{mode}"),
     ])
 
     return header, InlineKeyboardMarkup(keyboard)
