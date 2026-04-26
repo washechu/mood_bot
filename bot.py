@@ -512,18 +512,29 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     days = int(query.data.split('_')[2])
+    period = "месяц" if days == 30 else "неделю"
+
+    await query.message.edit_text(f"_Собираю данные за {period}… 📈_", parse_mode='Markdown')
+
     header, keyboard, ai_text = await build_dynamics(query.from_user.id, days)
-    await query.message.edit_text(header, reply_markup=keyboard, parse_mode='Markdown')
-    summary_msg_id = context.user_data.get('summary_msg_id')
-    if summary_msg_id and ai_text:
+
+    # Delete old calendar and summary, send fresh ones at the bottom
+    old_summary_id = context.user_data.get('summary_msg_id')
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    if old_summary_id:
         try:
-            await context.bot.edit_message_text(chat_id=query.message.chat_id, message_id=summary_msg_id, text=ai_text, parse_mode='Markdown')
+            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=old_summary_id)
         except Exception:
-            msg = await query.message.reply_text(ai_text, parse_mode='Markdown')
-            context.user_data['summary_msg_id'] = msg.message_id
-    elif ai_text:
-        msg = await query.message.reply_text(ai_text, parse_mode='Markdown')
-        context.user_data['summary_msg_id'] = msg.message_id
+            pass
+
+    new_cal = await context.bot.send_message(chat_id=query.message.chat_id, text=header, reply_markup=keyboard, parse_mode='Markdown')
+    if ai_text:
+        summary_msg = await context.bot.send_message(chat_id=query.message.chat_id, text=ai_text, parse_mode='Markdown')
+        context.user_data['summary_msg_id'] = summary_msg.message_id
+    context.user_data['calendar_msg_id'] = new_cal.message_id
 
 
 async def handle_dynamics_tap(update: Update, context: ContextTypes.DEFAULT_TYPE):
