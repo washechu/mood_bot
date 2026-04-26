@@ -223,20 +223,18 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
 
     if mode == 'week':
         structure = (
-            "_Как прошла неделя_\n2-3 предложения общего впечатления\n\n"
-            "_Что радует_\nЧто шло хорошо, на что стоит опираться\n\n"
-            "_На что обратить внимание_\nЧто просит заботы, без осуждения\n\n"
-            "_Связи_\nЕсть ли заметные паттерны между категориями\n\n"
-            "_Совет на следующую неделю_\nОдин конкретный и добрый"
+            "_Как прошла неделя_\n1-2 предложения\n\n"
+            "_Что радует_\n1-2 предложения\n\n"
+            "_На что обратить внимание_\n1-2 предложения\n\n"
+            "_Совет_\nОдно предложение"
         )
         header = "🧠 *Взгляд на неделю*"
     else:
         structure = (
-            "_Месяц в целом_\nОбщая картина и динамика\n\n"
-            "_Сильные стороны_\nЧто стабильно хорошо\n\n"
-            "_Зоны роста_\nГде есть потенциал для улучшений\n\n"
-            "_Главный паттерн_\nСамая интересная связь в данных\n\n"
-            "_Намерение на следующий месяц_\nОдна мягкая рекомендация"
+            "_Месяц в целом_\n1-2 предложения\n\n"
+            "_Сильные стороны_\n1-2 предложения\n\n"
+            "_Зоны роста_\n1-2 предложения\n\n"
+            "_Намерение_\nОдно предложение"
         )
         header = "🧠 *Взгляд на месяц*"
 
@@ -244,7 +242,7 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
         f"Данные дневника за {days} дней:{diary_text}\n\n"
         f"Напиши анализ строго по этой структуре:\n{structure}\n\n"
         f"Требования:\n"
-        f"- Не больше 250 слов\n"
+        f"- Строго не больше 120 слов суммарно\n"
         f"- Названия блоков как в структуре (курсивом через _)\n"
         f"- Текст внутри блоков — обычный, без markdown\n"
         f"- Пустая строка между блоками\n"
@@ -498,15 +496,6 @@ async def cmd_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Dynamics commands
 # ──────────────────────────────────────────────
 
-def _split_text(text: str, limit: int = 4000) -> list[str]:
-    if len(text) <= limit:
-        return [text]
-    parts = []
-    while text:
-        parts.append(text[:limit])
-        text = text[limit:]
-    return parts
-
 
 async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -514,8 +503,7 @@ async def cmd_dynamics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     header, keyboard, ai_text = await build_dynamics(user_id, 7)
     await msg.delete()
     if ai_text:
-        for chunk in _split_text(ai_text):
-            await update.message.reply_text(chunk, parse_mode='Markdown')
+        await update.message.reply_text(ai_text, parse_mode='Markdown')
     await update.message.reply_text(header, reply_markup=keyboard, parse_mode='Markdown')
 
 
@@ -536,8 +524,7 @@ async def handle_dynamics_toggle(update: Update, context: ContextTypes.DEFAULT_T
         pass
 
     if ai_text:
-        for chunk in _split_text(ai_text):
-            await context.bot.send_message(chat_id=chat_id, text=chunk, parse_mode='Markdown')
+        await context.bot.send_message(chat_id=chat_id, text=ai_text, parse_mode='Markdown')
     await context.bot.send_message(chat_id=chat_id, text=header, reply_markup=keyboard, parse_mode='Markdown')
 
 
