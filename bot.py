@@ -326,8 +326,8 @@ async def build_dynamics(user_id: int, days: int):
         if days == 7 else
         InlineKeyboardButton("📅 Показать неделю", callback_data="dyn_toggle_7")
     ]
-    days_with_data = len(by_date)
-    if (days == 7 and days_with_data >= 7) or (days == 30 and days_with_data >= 28):
+    days_since_start = db.get_days_since_first_entry(user_id)
+    if (days == 7 and days_since_start >= 7) or (days == 30 and days_since_start >= 30):
         bottom_row.append(InlineKeyboardButton("🧠 Анализ", callback_data=f"dyn_ai_{days}_{mode}"))
     keyboard.append(bottom_row)
 

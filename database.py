@@ -88,6 +88,18 @@ def save_entry(user_id: int, date: str, category: str, score: int, comment: str 
     conn.close()
 
 
+def get_days_since_first_entry(user_id: int) -> int:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT MIN(date) FROM entries WHERE user_id = ?', (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return 0
+    first = datetime.strptime(row[0], '%Y-%m-%d').date()
+    return (datetime.now(MOSCOW_TZ).date() - first).days
+
+
 def get_entries(user_id: int, days: int = 30):
     """Returns list of (date, category, score, comment)"""
     conn = sqlite3.connect(DB_PATH)
