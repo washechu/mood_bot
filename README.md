@@ -1,7 +1,7 @@
-# 🌙 Mood Tracker Bot
+# Mood Tracker Bot
 
-Телеграм-бот для ежедневного отслеживания самочувствия по 5 категориям:
-❤️ Здоровье · 😊 Настроение · 💪 Физактивность · 🍎 Еда · 😴 Сон
+Telegram-бот для ежедневного отслеживания самочувствия по 6 категориям:
+💊 Здоровье · 😊 Настроение · 🏃 Активность · 🍎 Еда · 😴 Сон · 📚 Саморазвитие
 
 ---
 
@@ -9,75 +9,60 @@
 
 ### Шаг 1 — Создать бота в Telegram
 
-1. Открой [@BotFather](https://t.me/BotFather) в Telegram
-2. Напиши `/newbot`
-3. Придумай имя и username (например `GalyaMoodBot`)
-4. Скопируй **токен** — он выглядит как `123456789:ABC-DEF...`
+1. Открой [@BotFather](https://t.me/BotFather)
+2. Напиши `/newbot`, придумай имя и username
+3. Скопируй токен
 
-### Шаг 2 — Задеплоить на Railway (бесплатно)
+### Шаг 2 — Задеплоить на Railway
 
-1. Зарегистрируйся на [railway.app](https://railway.app) (можно через GitHub)
-2. Нажми **New Project → Deploy from GitHub repo**
-3. Загрузи эти файлы в GitHub-репозиторий (или используй Railway CLI)
-4. В Railway зайди в **Variables** и добавь:
+1. Зарегистрируйся на [railway.app](https://railway.app)
+2. **New Project → Deploy from GitHub repo** → выбери этот репозиторий
+3. Добавь Volume, mount path: `/data`
+4. В **Variables** добавь:
    ```
-   BOT_TOKEN = <твой токен от BotFather>
+   BOT_TOKEN=<токен от BotFather>
+   ROUTER_AI_KEY=<ключ RouterAI>
+   DB_PATH=/data/mood_tracker.db
    ```
-5. Railway сам задеплоит бота — через ~1 минуту он будет живой
+5. Railway задеплоит бота — через ~1 минуту он живой
 
-> **Альтернатива без GitHub:** Railway CLI
-> ```bash
-> npm install -g @railway/cli
-> railway login
-> railway init
-> railway up
-> ```
+### Шаг 3 — Запустить
 
-### Шаг 3 — Запустить бота
-
-Открой своего бота в Telegram, напиши `/start` — он спросит время напоминания и всё готово!
+Открой бота в Telegram, напиши `/start`.
 
 ---
 
 ## Команды
 
-| Команда     | Описание                              |
-|-------------|---------------------------------------|
-| `/start`    | Первый запуск, установить время       |
-| `/fill`     | Заполнить дневник прямо сейчас        |
-| `/stats`    | Текстовые итоги за последние 7 дней   |
-| `/heatmap`  | Тепловая карта за 30 дней (картинка)  |
-| `/trends`   | График динамики за 14 дней (картинка) |
-| `/time`     | Изменить время напоминания            |
+| Команда | Описание |
+|---------|----------|
+| `/start` | Первый запуск |
+| `/fill` | Заполнить дневник прямо сейчас |
+| `/time` | Изменить время напоминания |
+
+Также доступны кнопки меню: **📝 Заполнить**, **📈 Динамика**, **🔔 Напоминание**.
 
 ---
 
-## Локальный запуск (для разработки)
+## Локальный запуск
 
 ```bash
 pip install -r requirements.txt
 export BOT_TOKEN="твой_токен"
+export ROUTER_AI_KEY="твой_ключ"
 python bot.py
 ```
 
 ---
 
-## Структура проекта
+## Структура
 
 ```
-bot.py          — основная логика бота
+bot.py          — бот + Flask viewer (запускается в одном процессе)
 database.py     — работа с SQLite
-analytics.py    — графики и статистика
+viewer.py       — веб-интерфейс для просмотра данных
 requirements.txt
 Procfile        — для Railway
 ```
 
-Данные хранятся в `mood_tracker.db` (SQLite). На Railway файловая система эфемерна — если нужно постоянное хранение, подключи Railway PostgreSQL или смонтируй Volume.
-
----
-
-## Добавить Volume на Railway (чтобы данные не терялись при перезапуске)
-
-1. В Railway → твой сервис → **Volumes** → **Add Volume**
-2. Mount path: `/data`
-3. В переменных добавь: `DB_PATH=/data/mood_tracker.db`
+Данные хранятся в `mood_tracker.db` (SQLite). На Railway подключи Volume с mount path `/data` и задай `DB_PATH=/data/mood_tracker.db`.
