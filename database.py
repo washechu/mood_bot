@@ -34,8 +34,49 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS summaries (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER,
+            date        DATE,
+            type        TEXT,
+            text        TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, date, type),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        )
+    ''')
     conn.commit()
     conn.close()
+
+
+def save_summary(user_id: int, date: str, summary_type: str, text: str):
+    """type: 'day' | 'week' | 'month'"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        '''INSERT OR REPLACE INTO summaries (user_id, date, type, text)
+           VALUES (?, ?, ?, ?)''',
+        (user_id, date, summary_type, text)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_summaries(user_id: int, limit: int = 30):
+    """Returns list of (date, type, text, created_at)"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        '''SELECT date, type, text, created_at FROM summaries
+           WHERE user_id = ?
+           ORDER BY date DESC, type ASC
+           LIMIT ?''',
+        (user_id, limit)
+    )
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 
 def add_or_update_user(user_id: int, username: str, first_name: str):

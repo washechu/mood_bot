@@ -202,6 +202,37 @@ USER_TEMPLATE = """<!DOCTYPE html>
     <div class="empty">Нет записей за выбранный период</div>
     {% endif %}
   </div>
+
+  {% if summaries %}
+  <div class="card">
+    <div class="card-header">🧠 Саммари</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Тип</th>
+          <th>Текст</th>
+          <th>Создано</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in summaries %}
+        <tr>
+          <td>{{ s['date'] }}</td>
+          <td>
+            {% if s['type'] == 'day' %}<span class="badge" style="background:#e8f0fe;color:#3c4dc0">День</span>
+            {% elif s['type'] == 'week' %}<span class="badge" style="background:#e6f4ea;color:#1e8449">Неделя</span>
+            {% else %}<span class="badge" style="background:#fef9e7;color:#b7950b">Месяц</span>
+            {% endif %}
+          </td>
+          <td style="white-space:pre-wrap;max-width:500px;font-size:13px">{{ s['text'] }}</td>
+          <td style="color:#999;font-size:12px">{{ (s['created_at'] or '')[:16] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 </div>
 </body></html>"""
 
@@ -256,10 +287,18 @@ def user_view(user_id):
         ''', (user_id, date_from, date_to, cat)).fetchone()
         avgs[cat] = round(row[0], 1) if row[0] is not None else None
 
+    summaries = conn.execute(
+        '''SELECT date, type, text, created_at FROM summaries
+           WHERE user_id = ? AND date >= ? AND date <= ?
+           ORDER BY date DESC, type ASC''',
+        (user_id, date_from, date_to)
+    ).fetchall()
+
     conn.close()
     return render_template_string(
         USER_TEMPLATE,
         user=user, entries=entries, avgs=avgs,
+        summaries=summaries,
         categories=CATEGORIES, emoji=EMOJI,
         date_from=date_from, date_to=date_to,
         selected_category=selected_category,

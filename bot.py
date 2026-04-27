@@ -470,7 +470,9 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
         raw_entries = db.get_entries_by_date(user_id, fill_date)
         today_entries = [(cat, score, comm) for cat, score, comm in raw_entries]
         daily_text = await get_daily_summary(today_entries)
-        if not daily_text:
+        if daily_text:
+            db.save_summary(user_id, fill_date, 'day', daily_text)
+        else:
             daily_text = random.choice(QUOTES)
 
         try:
@@ -569,6 +571,9 @@ async def handle_ai_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await loading.delete()
     except Exception:
         pass
+    if ai_text and not ai_text.startswith('_Данных пока') and not ai_text.startswith('_Для анализа'):
+        today = moscow_now().strftime('%Y-%m-%d')
+        db.save_summary(query.from_user.id, today, mode, ai_text)
     if ai_text:
         await query.message.reply_text(ai_text, parse_mode='Markdown')
     else:
