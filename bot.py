@@ -1,11 +1,8 @@
 import os
 import logging
 import random
-import asyncio
 import threading
 from datetime import datetime, timedelta, timezone
-
-import httpx
 
 from openai import AsyncOpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -21,11 +18,7 @@ logging.basicConfig(format='%(asctime)s [%(levelname)s] %(name)s: %(message)s', 
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ['BOT_TOKEN']
-PIAPI_KEY = os.environ.get('PIAPI_KEY', '')
 MOSCOW_TZ = timezone(timedelta(hours=3))
-
-# Референсное изображение Галички для Flux Kontext
-REFERENCE_IMAGE_URL = "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_meditation.png"
 
 CATEGORIES = ['Здоровье', 'Настроение', 'Активность', 'Еда', 'Сон', 'Саморазвитие']
 EMOJI = {
@@ -169,10 +162,9 @@ def ai_client():
 # AI: daily summary
 # ──────────────────────────────────────────────
 
-async def get_daily_summary(entries_today: list) -> tuple[str, str]:
-    """Returns (summary_text, scene_for_image). Two separate AI calls for reliability."""
+async def get_daily_summary(entries_today: list) -> str:
     if not entries_today:
-        return "", ""
+        return ""
     lines = []
     scores = []
     for category, score, comment in entries_today:
@@ -198,7 +190,7 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
             "Просто признай что было непросто и пожелай отдыха."
         )
 
-    summary_prompt = (
+    prompt = (
         f"Вот записи за сегодня:\n{today_text}\n\n"
         f"Напиши короткий отклик на день — 2-3 предложения. "
         f"{tone} "
@@ -206,127 +198,24 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
         f"Замечай что-то конкретное из записей — покажи что услышал человека. "
         f"Только русский язык, без markdown."
     )
-
-    scene_prompt = (
-        f"Today's diary entries:\n{today_text}\n\n"
-        f"Write ONE short English sentence describing what the girl is doing, "
-        f"based on the most notable entry. Only the action and setting, no art style mentions.\n"
-        f"Examples: girl climbing on indoor wall with her dog watching / "
-        f"girl cooking healthy meal in a warm kitchen / "
-        f"exhausted girl lying on yoga mat after hard workout / "
-        f"girl reading book in cozy cafe with her dog"
-    )
-
-    summary, scene = "", ""
-
-    logger.info(f"get_daily_summary: {len(entries_today)} entries, avg={avg:.1f}")
-
-    # Call 1: summary (system prompt inlined into user message for compatibility)
     for attempt in range(2):
         try:
             response = await ai_client().chat.completions.create(
                 model="deepseek/deepseek-v4-pro",
-                max_tokens=300,
+                max_tokens=500,
                 messages=[
-                    {"role": "user", "content": f"{SYSTEM_PROMPT}\n\n{summary_prompt}"}
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
                 ]
             )
-            if not response.choices:
-                logger.warning(f"Summary attempt {attempt+1}: choices is empty/None, raw={response}")
-                continue
             choice = response.choices[0]
             content = choice.message.content
-            logger.info(f"Summary attempt {attempt+1}: finish_reason={choice.finish_reason}, content_len={len(content) if content else 0}")
             if content:
-                summary = content.strip()
-                break
+                return content.strip()
+            logger.warning(f"Daily summary empty content, finish_reason={choice.finish_reason}")
         except Exception as e:
-            logger.error(f"Summary error (attempt {attempt + 1}): {type(e).__name__}: {e}")
-
-    # Call 2: scene (small, fast)
-    for attempt in range(2):
-        try:
-            response = await ai_client().chat.completions.create(
-                model="deepseek/deepseek-v4-pro",
-                max_tokens=60,
-                messages=[{"role": "user", "content": scene_prompt}]
-            )
-            choice = response.choices[0]
-            content = choice.message.content
-            logger.info(f"Scene attempt {attempt+1}: finish_reason={choice.finish_reason}, content={content!r}")
-            if content:
-                scene = content.strip()
-                break
-        except Exception as e:
-            logger.error(f"Scene error (attempt {attempt + 1}): {type(e).__name__}: {e}")
-
-    # Rule-based scene fallback if AI scene failed
-    if not scene:
-        best_cat = max(entries_today, key=lambda x: x[1])[0]
-        scene_map = {
-            'Здоровье':     'girl resting peacefully at home with her dog',
-            'Настроение':   'girl smiling and relaxing in a cozy room with her dog',
-            'Активность':   'girl running in a park with her dog',
-            'Еда':          'girl cooking a healthy meal in a warm kitchen',
-            'Сон':          'girl sleeping peacefully in a cozy bedroom with her dog',
-            'Саморазвитие': 'girl reading a book in a cozy cafe with her dog',
-        }
-        scene = scene_map.get(best_cat, 'girl relaxing at home with her dog')
-        logger.info(f"Scene fallback (best cat={best_cat}): {scene}")
-
-    return summary, scene
-
-
-async def generate_image_for_day(scene: str) -> str | None:
-    """Generate contextual image via PiAPI Flux Kontext. Returns image URL or None."""
-    if not PIAPI_KEY or not scene:
-        return None
-    prompt = (
-        "Keep the girl character, her curly dark hair, clay 3D render art style, "
-        "and the fluffy caramel dog exactly the same. "
-        f"Change only the scene and setting: {scene}"
-    )
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://api.piapi.ai/api/v1/task",
-                headers={"X-API-Key": PIAPI_KEY, "Content-Type": "application/json"},
-                json={
-                    "model": "Qubico/flux1-dev-advanced",
-                    "task_type": "kontext",
-                    "input": {
-                        "prompt": prompt,
-                        "image": REFERENCE_IMAGE_URL,
-                        "width": 1024,
-                        "height": 1024,
-                    }
-                }
-            )
-            data = resp.json()
-            task_id = data['data']['task_id']
-            logger.info(f"PiAPI task created: {task_id}")
-
-        # Poll until done (up to ~90 seconds)
-        async with httpx.AsyncClient(timeout=10) as client:
-            for attempt in range(23):
-                await asyncio.sleep(4)
-                poll = await client.get(
-                    f"https://api.piapi.ai/api/v1/task/{task_id}",
-                    headers={"X-API-Key": PIAPI_KEY}
-                )
-                poll_data = poll.json()
-                status = poll_data['data']['status']
-                logger.info(f"PiAPI task {task_id} status: {status} (attempt {attempt + 1})")
-                if status.lower() == 'completed':
-                    url = poll_data['data']['output']['image_url']
-                    logger.info(f"PiAPI image ready: {url}")
-                    return url
-                elif status.lower() == 'failed':
-                    logger.error(f"PiAPI task failed: {poll_data}")
-                    return None
-    except Exception as e:
-        logger.error(f"Image generation error: {e}")
-    return None
+            logger.error(f"Daily summary error (attempt {attempt + 1}): {e}")
+    return ""
 
 
 # ──────────────────────────────────────────────
@@ -580,52 +469,45 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             parse_mode='Markdown'
         )
 
-        # Get today's entries for daily summary + scene
+        # Get today's entries for daily summary
         fill_date = context.user_data['fill_date']
         raw_entries = db.get_entries_by_date(user_id, fill_date)
         today_entries = [(cat, score, comm) for cat, score, comm in raw_entries]
-        daily_text, scene = await get_daily_summary(today_entries)
+        daily_text = await get_daily_summary(today_entries)
         if daily_text:
             db.save_summary(user_id, fill_date, 'day', daily_text)
         else:
             daily_text = random.choice(QUOTES)
-            scene = ''
-
-        # Generate contextual image (in parallel doesn't block — already inside thinking_msg)
-        generated_image_url = await generate_image_for_day(scene)
 
         try:
             await thinking_msg.delete()
         except Exception:
             pass
 
-        async def send_photo_with_fallback(caption: str):
-            """Try generated image → static image → text only."""
-            if generated_image_url:
-                try:
-                    await context.bot.send_photo(chat_id=chat_id, photo=generated_image_url, caption=caption)
-                    return
-                except Exception as e:
-                    logger.warning(f"Generated image send failed: {e}")
-            # Fallback: static image
+        if context.user_data.get('onboarding'):
             try:
                 photo = _image_file_ids.get(image_url, image_url)
-                msg = await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=caption)
+                msg = await context.bot.send_photo(chat_id=chat_id, photo=photo,
+                    caption=f"✅ Первая запись сделана!\n\n{daily_text}")
                 if image_url not in _image_file_ids:
                     _image_file_ids[image_url] = msg.photo[-1].file_id
             except Exception as e:
-                logger.error(f"Static photo send failed: {e}")
-                await context.bot.send_message(chat_id=chat_id, text=caption)
-
-        if context.user_data.get('onboarding'):
-            await send_photo_with_fallback(f"✅ Первая запись сделана!\n\n{daily_text}")
+                logger.warning(f"Photo send failed: {e}")
+                await context.bot.send_message(chat_id=chat_id, text=f"✅ Первая запись сделана!\n\n{daily_text}")
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="В какое время каждый день мне присылать напоминание?\nНапиши в формате ЧЧ:ММ, например `21:00`",
                 parse_mode='Markdown'
             )
             return SET_TIME
-        await send_photo_with_fallback(daily_text)
+        try:
+            photo = _image_file_ids.get(image_url, image_url)
+            msg = await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=daily_text)
+            if image_url not in _image_file_ids:
+                _image_file_ids[image_url] = msg.photo[-1].file_id
+        except Exception as e:
+            logger.error(f"Photo send failed with URL {image_url}: {type(e).__name__}: {e}")
+            await context.bot.send_message(chat_id=chat_id, text=daily_text)
 
         streak = get_streak(user_id)
         streak_text = f"🔥 {streak} {'день' if streak % 10 == 1 and streak % 100 != 11 else 'дня' if 2 <= streak % 10 <= 4 and not 12 <= streak % 100 <= 14 else 'дней'} подряд" if streak >= 2 else ""
