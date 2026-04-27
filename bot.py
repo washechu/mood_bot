@@ -219,6 +219,8 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
 
     summary, scene = "", ""
 
+    logger.info(f"get_daily_summary: {len(entries_today)} entries, avg={avg:.1f}")
+
     # Call 1: summary
     for attempt in range(2):
         try:
@@ -232,12 +234,12 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
             )
             choice = response.choices[0]
             content = choice.message.content
+            logger.info(f"Summary attempt {attempt+1}: finish_reason={choice.finish_reason}, content_len={len(content) if content else 0}")
             if content:
                 summary = content.strip()
                 break
-            logger.warning(f"Summary empty, finish_reason={choice.finish_reason}")
         except Exception as e:
-            logger.error(f"Summary error (attempt {attempt + 1}): {e}")
+            logger.error(f"Summary error (attempt {attempt + 1}): {type(e).__name__}: {e}")
 
     # Call 2: scene (small, fast)
     for attempt in range(2):
@@ -249,12 +251,26 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
             )
             choice = response.choices[0]
             content = choice.message.content
+            logger.info(f"Scene attempt {attempt+1}: finish_reason={choice.finish_reason}, content={content!r}")
             if content:
                 scene = content.strip()
-                logger.info(f"Scene: {scene}")
                 break
         except Exception as e:
-            logger.error(f"Scene error (attempt {attempt + 1}): {e}")
+            logger.error(f"Scene error (attempt {attempt + 1}): {type(e).__name__}: {e}")
+
+    # Rule-based scene fallback if AI scene failed
+    if not scene:
+        best_cat = max(entries_today, key=lambda x: x[1])[0]
+        scene_map = {
+            'Здоровье':     'girl resting peacefully at home with her dog',
+            'Настроение':   'girl smiling and relaxing in a cozy room with her dog',
+            'Активность':   'girl running in a park with her dog',
+            'Еда':          'girl cooking a healthy meal in a warm kitchen',
+            'Сон':          'girl sleeping peacefully in a cozy bedroom with her dog',
+            'Саморазвитие': 'girl reading a book in a cozy cafe with her dog',
+        }
+        scene = scene_map.get(best_cat, 'girl relaxing at home with her dog')
+        logger.info(f"Scene fallback (best cat={best_cat}): {scene}")
 
     return summary, scene
 
