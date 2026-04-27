@@ -268,9 +268,9 @@ async def generate_image_for_day(scene: str) -> str | None:
             task_id = data['data']['task_id']
             logger.info(f"PiAPI task created: {task_id}")
 
-        # Poll until done (up to ~80 seconds)
+        # Poll until done (up to ~90 seconds)
         async with httpx.AsyncClient(timeout=10) as client:
-            for attempt in range(20):
+            for attempt in range(23):
                 await asyncio.sleep(4)
                 poll = await client.get(
                     f"https://api.piapi.ai/api/v1/task/{task_id}",
@@ -279,11 +279,11 @@ async def generate_image_for_day(scene: str) -> str | None:
                 poll_data = poll.json()
                 status = poll_data['data']['status']
                 logger.info(f"PiAPI task {task_id} status: {status} (attempt {attempt + 1})")
-                if status == 'Completed':
+                if status.lower() == 'completed':
                     url = poll_data['data']['output']['image_url']
                     logger.info(f"PiAPI image ready: {url}")
                     return url
-                elif status == 'Failed':
+                elif status.lower() == 'failed':
                     logger.error(f"PiAPI task failed: {poll_data}")
                     return None
     except Exception as e:
