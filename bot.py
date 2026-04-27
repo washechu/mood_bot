@@ -221,17 +221,19 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
 
     logger.info(f"get_daily_summary: {len(entries_today)} entries, avg={avg:.1f}")
 
-    # Call 1: summary
+    # Call 1: summary (system prompt inlined into user message for compatibility)
     for attempt in range(2):
         try:
             response = await ai_client().chat.completions.create(
                 model="deepseek/deepseek-v4-pro",
                 max_tokens=300,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": summary_prompt}
+                    {"role": "user", "content": f"{SYSTEM_PROMPT}\n\n{summary_prompt}"}
                 ]
             )
+            if not response.choices:
+                logger.warning(f"Summary attempt {attempt+1}: choices is empty/None, raw={response}")
+                continue
             choice = response.choices[0]
             content = choice.message.content
             logger.info(f"Summary attempt {attempt+1}: finish_reason={choice.finish_reason}, content_len={len(content) if content else 0}")
