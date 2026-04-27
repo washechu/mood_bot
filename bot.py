@@ -79,6 +79,16 @@ REMINDER_MESSAGES = [
     "Один вопрос на вечер 🌛 Как ты?\nЗапиши — даже если день был обычным. Особенно если был обычным.",
 ]
 
+DONE_PHRASES = [
+    "Готово.",
+    "Сделано.",
+    "Хорошо.",
+    "День отмечен.",
+    "Всё записано.",
+    "Записано.",
+    "Принято.",
+]
+
 COMMENT_PROMPTS = {
     'Здоровье':     "Что с самочувствием? Есть что-то, на что стоит обратить внимание? 🩺",
     'Настроение':   "Что повлияло на настроение сегодня? Что стоит за этой оценкой? 💭",
@@ -534,7 +544,8 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             streak_text = f"🔥 {streak} {day_form(streak)} подряд{milestone}"
         else:
             streak_text = ""
-        done_text = f"✅  {streak_text}" if streak_text else "✅"
+        phrase = random.choice(DONE_PHRASES)
+        done_text = f"✅ {phrase}\n{streak_text}" if streak_text else f"✅ {phrase}"
         await context.bot.send_message(chat_id=chat_id, text=done_text, reply_markup=main_menu_kb())
         return ConversationHandler.END
 
