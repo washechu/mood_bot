@@ -170,7 +170,7 @@ def ai_client():
 # ──────────────────────────────────────────────
 
 async def get_daily_summary(entries_today: list) -> tuple[str, str]:
-    """Returns (summary_text, scene_for_image). Scene is in English for image generation."""
+    """Returns (summary_text, scene_for_image). Two separate AI calls for reliability."""
     if not entries_today:
         return "", ""
     lines = []
@@ -198,45 +198,65 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
             "Просто признай что было непросто и пожелай отдыха."
         )
 
-    prompt = (
+    summary_prompt = (
         f"Вот записи за сегодня:\n{today_text}\n\n"
-        f"Напиши ответ в точно таком формате — два блока, разделённых строкой ###:\n\n"
-        f"<отклик на день — 2-3 предложения. {tone} "
-        f"Не восклицай, не заискивай. Замечай что-то конкретное из записей. Только русский язык, без markdown.>\n"
-        f"###\n"
-        f"<сцена для иллюстрации на английском, 1 предложение. "
-        f"Опиши конкретное занятие девушки исходя из самой яркой записи дня. "
-        f"Примеры: girl reading a book in a cozy cafe with her dog / "
-        f"exhausted girl lying on yoga mat after hard workout / "
-        f"girl cooking pasta in a warm kitchen smiling>"
+        f"Напиши короткий отклик на день — 2-3 предложения. "
+        f"{tone} "
+        f"Не восклицай, не заискивай. "
+        f"Замечай что-то конкретное из записей — покажи что услышал человека. "
+        f"Только русский язык, без markdown."
     )
+
+    scene_prompt = (
+        f"Today's diary entries:\n{today_text}\n\n"
+        f"Write ONE short English sentence describing what the girl is doing, "
+        f"based on the most notable entry. Only the action and setting, no art style mentions.\n"
+        f"Examples: girl climbing on indoor wall with her dog watching / "
+        f"girl cooking healthy meal in a warm kitchen / "
+        f"exhausted girl lying on yoga mat after hard workout / "
+        f"girl reading book in cozy cafe with her dog"
+    )
+
+    summary, scene = "", ""
+
+    # Call 1: summary
     for attempt in range(2):
         try:
             response = await ai_client().chat.completions.create(
                 model="deepseek/deepseek-v4-pro",
-                max_tokens=500,
+                max_tokens=300,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": summary_prompt}
                 ]
             )
             choice = response.choices[0]
             content = choice.message.content
             if content:
-                content = content.strip()
-                if '###' in content:
-                    parts = content.split('###', 1)
-                    summary = parts[0].strip()
-                    scene = parts[1].strip()
-                    if summary:
-                        logger.info(f"Daily summary OK, scene: {scene[:80]}")
-                        return summary, scene
-                logger.warning("Daily summary: no ### separator found, using raw text")
-                return content.strip(), ''
-            logger.warning(f"Daily summary empty content, finish_reason={choice.finish_reason}")
+                summary = content.strip()
+                break
+            logger.warning(f"Summary empty, finish_reason={choice.finish_reason}")
         except Exception as e:
-            logger.error(f"Daily summary error (attempt {attempt + 1}): {e}")
-    return "", ""
+            logger.error(f"Summary error (attempt {attempt + 1}): {e}")
+
+    # Call 2: scene (small, fast)
+    for attempt in range(2):
+        try:
+            response = await ai_client().chat.completions.create(
+                model="deepseek/deepseek-v4-pro",
+                max_tokens=60,
+                messages=[{"role": "user", "content": scene_prompt}]
+            )
+            choice = response.choices[0]
+            content = choice.message.content
+            if content:
+                scene = content.strip()
+                logger.info(f"Scene: {scene}")
+                break
+        except Exception as e:
+            logger.error(f"Scene error (attempt {attempt + 1}): {e}")
+
+    return summary, scene
 
 
 async def generate_image_for_day(scene: str) -> str | None:
