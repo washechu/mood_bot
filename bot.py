@@ -220,10 +220,12 @@ async def get_daily_summary(entries_today: list) -> str:
                 model="deepseek/deepseek-v4-pro",
                 max_tokens=500,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": f"{SYSTEM_PROMPT}\n\n{prompt}"}
                 ]
             )
+            if not response.choices:
+                logger.warning("Daily summary: choices=None")
+                continue
             choice = response.choices[0]
             content = choice.message.content
             if content:
@@ -295,10 +297,12 @@ async def get_ai_summary(user_id: int, days: int, mode: str) -> str:
                 model="deepseek/deepseek-v4-pro",
                 max_tokens=2000,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": f"{SYSTEM_PROMPT}\n\n{prompt}"}
                 ]
             )
+            if not response.choices:
+                logger.warning("AI summary: choices=None")
+                continue
             choice = response.choices[0]
             content = choice.message.content
             if content:
