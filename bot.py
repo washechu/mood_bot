@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 import random
@@ -226,17 +227,19 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
             content = choice.message.content
             if content:
                 content = content.strip()
-                # Strip markdown code fences if present
-                if content.startswith("```"):
-                    content = content.split("```")[1]
-                    if content.startswith("json"):
-                        content = content[4:]
-                try:
-                    parsed = json.loads(content)
-                    return parsed.get('summary', '').strip(), parsed.get('scene', '').strip()
-                except json.JSONDecodeError:
-                    logger.warning("Daily summary JSON parse failed, using raw text")
-                    return content.strip(), ''
+                # Extract JSON object from anywhere in the response
+                json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                if json_match:
+                    try:
+                        parsed = json.loads(json_match.group())
+                        summary = parsed.get('summary', '').strip()
+                        scene = parsed.get('scene', '').strip()
+                        if summary:
+                            return summary, scene
+                    except json.JSONDecodeError:
+                        pass
+                logger.warning("Daily summary JSON parse failed, using raw text")
+                return content.strip(), ''
             logger.warning(f"Daily summary empty content, finish_reason={choice.finish_reason}")
         except Exception as e:
             logger.error(f"Daily summary error (attempt {attempt + 1}): {e}")
