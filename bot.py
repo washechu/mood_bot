@@ -44,6 +44,10 @@ IMAGES = [
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_walking.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_watching.png",
     "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_working.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_camping.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_climbing.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_meditation.png",
+    "https://raw.githubusercontent.com/washechu/mood_bot/main/images/g_shopping_2.png",
 ]
 
 # url -> telegram file_id (persists for lifetime of process)
