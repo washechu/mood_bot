@@ -330,7 +330,7 @@ async def build_dynamics(user_id: int, days: int):
                 week_scores = [by_date.get(d.strftime('%Y-%m-%d'), {}).get(cat, (None, None))[0] for d in week]
                 filled = [s for s in week_scores if s is not None]
                 avg = sum(filled) / len(filled) if filled else None
-                label = f"{score_color(avg)} {week[0].strftime('%d.%m')}"
+                label = f"{score_color(avg)} {week[0].day}"
                 week_row.append(InlineKeyboardButton(
                     label, callback_data=f"week_{week[0].strftime('%Y-%m-%d')}_{cat_idx}"
                 ))
