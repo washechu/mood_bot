@@ -1,6 +1,4 @@
 import os
-import re
-import json
 import logging
 import random
 import asyncio
@@ -202,16 +200,15 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
 
     prompt = (
         f"Вот записи за сегодня:\n{today_text}\n\n"
-        f"Верни ответ строго в формате JSON без лишнего текста:\n"
-        f'{{"summary": "...", "scene": "..."}}\n\n'
-        f"summary — короткий отклик на день, 2-3 предложения. {tone} "
-        f"Не восклицай, не заискивай. Замечай что-то конкретное из записей. Только русский язык, без markdown.\n\n"
-        f"scene — сцена для иллюстрации на английском, 1 предложение. "
+        f"Напиши ответ в точно таком формате — два блока, разделённых строкой ###:\n\n"
+        f"<отклик на день — 2-3 предложения. {tone} "
+        f"Не восклицай, не заискивай. Замечай что-то конкретное из записей. Только русский язык, без markdown.>\n"
+        f"###\n"
+        f"<сцена для иллюстрации на английском, 1 предложение. "
         f"Опиши конкретное занятие девушки исходя из самой яркой записи дня. "
-        f"Примеры: 'girl reading a book in a cozy cafe with her dog', "
-        f"'exhausted girl lying on yoga mat after hard workout', "
-        f"'girl cooking pasta in a warm kitchen, happy mood'. "
-        f"Только обстановка и действие, без упоминания стиля арта."
+        f"Примеры: girl reading a book in a cozy cafe with her dog / "
+        f"exhausted girl lying on yoga mat after hard workout / "
+        f"girl cooking pasta in a warm kitchen smiling>"
     )
     for attempt in range(2):
         try:
@@ -227,18 +224,14 @@ async def get_daily_summary(entries_today: list) -> tuple[str, str]:
             content = choice.message.content
             if content:
                 content = content.strip()
-                # Extract JSON object from anywhere in the response
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    try:
-                        parsed = json.loads(json_match.group())
-                        summary = parsed.get('summary', '').strip()
-                        scene = parsed.get('scene', '').strip()
-                        if summary:
-                            return summary, scene
-                    except json.JSONDecodeError:
-                        pass
-                logger.warning("Daily summary JSON parse failed, using raw text")
+                if '###' in content:
+                    parts = content.split('###', 1)
+                    summary = parts[0].strip()
+                    scene = parts[1].strip()
+                    if summary:
+                        logger.info(f"Daily summary OK, scene: {scene[:80]}")
+                        return summary, scene
+                logger.warning("Daily summary: no ### separator found, using raw text")
                 return content.strip(), ''
             logger.warning(f"Daily summary empty content, finish_reason={choice.finish_reason}")
         except Exception as e:
