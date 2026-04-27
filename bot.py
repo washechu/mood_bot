@@ -192,10 +192,11 @@ async def get_daily_summary(entries_today: list) -> str:
 
     prompt = (
         f"Вот записи за сегодня:\n{today_text}\n\n"
-        f"Напиши короткий отклик на день — 2-3 предложения. "
+        f"Напиши отклик на день — ровно два коротких абзаца, разделённых пустой строкой.\n"
+        f"Первый абзац: одно-два предложения — что заметил в этом дне. Опирайся на конкретные детали из записей, не обобщай.\n"
+        f"Второй абзац: одно предложение — тёплое завершение или пожелание на вечер.\n"
         f"{tone} "
-        f"Не восклицай, не заискивай. "
-        f"Замечай что-то конкретное из записей — покажи что услышал человека. "
+        f"Не восклицай, не заискивай, не используй слова 'противоречие', 'баланс', 'гармония'. "
         f"Только русский язык, без markdown."
     )
     for attempt in range(2):
@@ -510,7 +511,24 @@ async def _save_and_next(update: Update, context: ContextTypes.DEFAULT_TYPE, com
             await context.bot.send_message(chat_id=chat_id, text=daily_text)
 
         streak = get_streak(user_id)
-        streak_text = f"🔥 {streak} {'день' if streak % 10 == 1 and streak % 100 != 11 else 'дня' if 2 <= streak % 10 <= 4 and not 12 <= streak % 100 <= 14 else 'дней'} подряд" if streak >= 2 else ""
+        if streak >= 2:
+            def day_form(n):
+                if n % 10 == 1 and n % 100 != 11: return "день"
+                if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14: return "дня"
+                return "дней"
+            if streak == 7:
+                milestone = " — неделя! 🎉"
+            elif streak == 14:
+                milestone = " — две недели! 🏆"
+            elif streak == 30:
+                milestone = " — месяц! 🌟"
+            elif streak % 10 == 0:
+                milestone = " — круглая цифра! ✨"
+            else:
+                milestone = ""
+            streak_text = f"🔥 {streak} {day_form(streak)} подряд{milestone}"
+        else:
+            streak_text = ""
         done_text = f"✅  {streak_text}" if streak_text else "✅"
         await context.bot.send_message(chat_id=chat_id, text=done_text, reply_markup=main_menu_kb())
         return ConversationHandler.END
